@@ -179,6 +179,65 @@ td span { display: block; margin-top: 0.2rem; color: var(--muted); }
 
 .add-country { margin-top: 0.8rem; }
 
+.banner.ok { background: var(--ready-bg); color: var(--green-dark); }
+
+.step { margin-top: 0.8rem; }
+
+.import-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 0.8rem;
+}
+
+.import-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+}
+
+.import-card h3 { margin: 0; font-size: 1rem; }
+
+.import-card h3 span { color: var(--muted); font-weight: 500; margin-left: 0.3rem; }
+
+button.ghost {
+    background: transparent;
+    color: var(--green-dark);
+    border: 1px solid var(--green);
+}
+
+button.ghost:hover { background: var(--ready-bg); }
+
+button.small { min-height: 2rem; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+
+.mark-form { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+
+.draft {
+    margin-top: 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.draft summary { padding: 0.75rem 0.9rem; cursor: pointer; }
+
+.draft summary span { color: var(--muted); margin-left: 0.4rem; }
+
+.draft pre {
+    margin: 0;
+    padding: 0 0.9rem 0.9rem;
+    white-space: pre-wrap;
+    font: inherit;
+    color: var(--ink);
+}
+
+.send-form { margin-top: 0.9rem; }
+
+code { background: var(--paper); padding: 0.1rem 0.35rem; border-radius: 6px; }
+
 @media (max-width: 800px) {
     .site-header, main { padding-left: 1rem; padding-right: 1rem; }
     .steps { grid-template-columns: 1fr; }

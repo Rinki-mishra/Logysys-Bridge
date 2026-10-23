@@ -65,7 +65,9 @@ public sealed class ConversionStore
                 BranchName = held.BranchName,
                 City = held.City,
                 State = held.State,
-                Country = held.Country
+                Country = held.Country,
+                RequesterEmail = held.RequesterEmail,
+                RequesterName = NullIfBlank(held.RequesterName)
             });
         }
 
@@ -127,6 +129,10 @@ public sealed class ConversionStore
         BranchName = ready.BranchName,
         City = ready.City,
         State = ready.State,
-        Country = ready.Country
+        Country = ready.Country,
+        RequesterEmail = ready.RequesterEmail,
+        RequesterName = NullIfBlank(ready.RequesterName)
     };
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

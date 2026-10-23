@@ -89,4 +89,48 @@ public sealed class ConversionRunRow
     public string? State { get; set; }
 
     public string? Country { get; set; }
+
+    public string? RequesterEmail { get; set; }
+
+    public string? RequesterName { get; set; }
+
+    public string? ImportStatus { get; set; }
+
+    public string? ImportMessage { get; set; }
+
+    public DateTime? ImportUpdatedAtUtc { get; set; }
+
+    public DateTime? EmailedAtUtc { get; set; }
+}
+
+public static class ImportStatuses
+{
+    public const string Created = "Created";
+
+    public const string Failed = "Failed";
+}
+
+public sealed class EmailNotification
+{
+    public int Id { get; set; }
+
+    public Guid RunId { get; set; }
+
+    public string RecipientEmail { get; set; } = string.Empty;
+
+    public string? RecipientName { get; set; }
+
+    public string Organisations { get; set; } = string.Empty;
+
+    public string Subject { get; set; } = string.Empty;
+
+    public string Body { get; set; } = string.Empty;
+
+    public string Delivery { get; set; } = string.Empty;
+
+    public string Status { get; set; } = string.Empty;
+
+    public string? Error { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; }
 }

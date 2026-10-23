@@ -24,3 +24,29 @@ dotnet test
 ```
 
 Upload each downloaded file in Logi-Sys under Directories → Organisations → Import.
+
+## Emailing the requestor
+
+After the import, open the run page again.
+
+1. For each file, upload the Logi-Sys error log. Organisations named in an `ERR:` line are marked failed, and every other organisation in that file is marked created. If the import had no errors, click **Mark all created**.
+2. Use **Mark created** or **Mark failed** on a row when Logi-Sys created an organisation despite an error, or the other way round.
+3. Click **Send emails**. Each requestor (client sheet column B, greeted by the name in column D) gets one email listing their created organisations. An organisation is never emailed twice.
+
+Mail settings are in the `Email` section of `appsettings.json`. While `Smtp:Host` is empty, emails are saved as `.eml` files in `src/LogisysOrgConverter/OutgoingMail` instead of being sent. For Office 365:
+
+```json
+"Email": {
+  "FromAddress": "you@yourcompany.com",
+  "Cc": "",
+  "Smtp": {
+    "Host": "smtp.office365.com",
+    "Port": 587,
+    "UseStartTls": true,
+    "UserName": "you@yourcompany.com",
+    "Password": "your password or app password"
+  }
+}
+```
+
+Every send is recorded in the `EmailNotifications` table.

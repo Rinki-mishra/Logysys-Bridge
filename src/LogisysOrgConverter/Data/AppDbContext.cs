@@ -18,6 +18,8 @@ public sealed class AppDbContext : DbContext
 
     public DbSet<ConversionRunRow> RunRows => Set<ConversionRunRow>();
 
+    public DbSet<EmailNotification> EmailNotifications => Set<EmailNotification>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<CountryAlias>(entity =>
@@ -65,6 +67,20 @@ public sealed class AppDbContext : DbContext
             entity.Property(item => item.City).HasMaxLength(200);
             entity.Property(item => item.State).HasMaxLength(200);
             entity.Property(item => item.Country).HasMaxLength(200);
+            entity.Property(item => item.RequesterEmail).HasMaxLength(320);
+            entity.Property(item => item.RequesterName).HasMaxLength(200);
+            entity.Property(item => item.ImportStatus).HasMaxLength(20);
+            entity.HasIndex(item => item.RunId);
+        });
+
+        modelBuilder.Entity<EmailNotification>(entity =>
+        {
+            entity.ToTable("EmailNotifications");
+            entity.Property(item => item.RecipientEmail).HasMaxLength(320);
+            entity.Property(item => item.RecipientName).HasMaxLength(200);
+            entity.Property(item => item.Subject).HasMaxLength(400);
+            entity.Property(item => item.Delivery).HasMaxLength(20);
+            entity.Property(item => item.Status).HasMaxLength(20);
             entity.HasIndex(item => item.RunId);
         });
     }

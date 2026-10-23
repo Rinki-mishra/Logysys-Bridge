@@ -1,5 +1,6 @@
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
+using LogisysOrgConverter.Notifications;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,9 @@ builder.Services.AddSingleton(new TemplatePaths
     Overseas = Path.Combine(builder.Environment.ContentRootPath, "Templates", "OrgMaster-Overseas-Template.xlsx")
 });
 builder.Services.AddScoped<ConversionStore>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
+builder.Services.AddSingleton<MailDelivery>();
+builder.Services.AddScoped<NotificationStore>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 20 * 1024 * 1024;
@@ -46,6 +50,7 @@ static async Task PrepareDatabaseAsync(WebApplication app)
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.Database.EnsureCreatedAsync();
+            await SchemaUpgrade.ApplyAsync(db);
             await DbInitializer.SeedAsync(db);
             return;
         }

@@ -10,7 +10,9 @@ public sealed record ReadyOrganisation(
     string City,
     string State,
     string Country,
-    IReadOnlyDictionary<string, string> Cells);
+    IReadOnlyDictionary<string, string> Cells,
+    string? RequesterEmail = null,
+    string? RequesterName = null);
 
 public sealed record HeldOrganisation(
     int SourceRowNumber,
@@ -19,7 +21,9 @@ public sealed record HeldOrganisation(
     string? City,
     string? State,
     string? Country,
-    string Reason);
+    string Reason,
+    string? RequesterEmail = null,
+    string? RequesterName = null);
 
 public sealed class ConversionResult
 {
@@ -55,6 +59,8 @@ public sealed class OrganisationConverter
             var state = Value(row, "AC");
             var countryRaw = Value(row, "AD");
             var canonical = ResolveCountry(countryRaw, catalog);
+            var requesterEmail = CleanEmail(Value(row, "B"));
+            var requesterName = Value(row, "D");
             var reasons = new List<string>();
 
             if (name.Length == 0)
@@ -111,7 +117,9 @@ public sealed class OrganisationConverter
                     city,
                     state,
                     canonical ?? countryRaw,
-                    string.Join(" ", reasons)));
+                    string.Join(" ", reasons),
+                    requesterEmail,
+                    requesterName));
                 continue;
             }
 
@@ -123,7 +131,9 @@ public sealed class OrganisationConverter
                 city,
                 state,
                 canonical!,
-                cells);
+                cells,
+                requesterEmail,
+                requesterName);
 
             if (template == MappingCatalog.IndiaTemplate)
             {
@@ -250,7 +260,7 @@ public sealed class OrganisationConverter
         return flags;
     }
 
-    private static string? CleanEmail(string raw)
+    public static string? CleanEmail(string raw)
     {
         var text = raw.Trim();
         var at = text.IndexOf('@');
