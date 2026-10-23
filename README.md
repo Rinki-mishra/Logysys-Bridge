@@ -11,7 +11,7 @@ The column map and the country spellings are stored in SQL Server. Change a coun
 
 ## Run
 
-Requires the .NET 10 SDK and SQL Server. Set the `Logisys` connection string in `src/LogisysOrgConverter/appsettings.json`. The app creates its tables in an empty database on first start.
+Requires the .NET 10 SDK and SQL Server. Copy `src/LogisysOrgConverter/appsettings.Local.example.json` to `appsettings.Local.json` in the same folder and set your connection string and mail settings there. Git ignores that file, so updates never overwrite it. The app creates its tables in an empty database on first start.
 
 ```bash
 dotnet run --project src/LogisysOrgConverter --urls http://localhost:43123
@@ -33,7 +33,7 @@ After the import, open the run page again.
 2. Use **Mark created** or **Mark failed** on a row when Logi-Sys created an organisation despite an error, or the other way round.
 3. Click **Send emails**. Each requestor (client sheet column B, greeted by the name in column D) gets one email listing their created organisations. An organisation is never emailed twice.
 
-Mail settings are in the `Email` section of `appsettings.json`. While `Smtp:Host` is empty, emails are saved as `.eml` files in `src/LogisysOrgConverter/OutgoingMail` instead of being sent. For Office 365:
+Mail settings go in the `Email` section of `appsettings.Local.json`. While `Smtp:Host` is empty, emails are saved as `.eml` files in `src/LogisysOrgConverter/OutgoingMail` instead of being sent. For Office 365:
 
 ```json
 "Email": {
