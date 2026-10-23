@@ -11,7 +11,7 @@ The column map and the country spellings are stored in SQL Server. Change a coun
 
 ## Run
 
-SQL Server must be listening on `localhost,1433`. The connection string is in `src/LogisysOrgConverter/appsettings.json`.
+Requires the .NET 10 SDK and SQL Server. Set the `Logisys` connection string in `src/LogisysOrgConverter/appsettings.json`. The app creates its tables in an empty database on first start.
 
 ```bash
 dotnet run --project src/LogisysOrgConverter --urls http://localhost:43123
