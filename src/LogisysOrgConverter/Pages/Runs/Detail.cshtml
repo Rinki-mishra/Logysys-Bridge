@@ -1,0 +1,69 @@
+@page "{id:guid}"
+@model LogisysOrgConverter.Pages.Runs.DetailModel
+@{
+    ViewData["Title"] = "Converted files";
+    var run = Model.Run!;
+    var when = DetailModel.IndiaTime(run.CreatedAtUtc).ToString("d MMM yyyy, HH:mm");
+}
+
+<section class="panel">
+    <p class="eyebrow">@run.SourceFileName</p>
+    <h1>@run.IndiaCount India @(run.IndiaCount == 1 ? "row" : "rows") and @run.OverseasCount overseas @(run.OverseasCount == 1 ? "row" : "rows") are ready. @run.HeldCount @(run.HeldCount == 1 ? "was" : "were") held back.</h1>
+    <p class="lead">Converted @when IST. Ready rows are in the download files. Held rows were left out.</p>
+
+    <div class="actions">
+        @if (run.IndiaCount > 0)
+        {
+            <a class="button" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="india">Download India file</a>
+        }
+        else
+        {
+            <span class="button disabled">No India rows</span>
+        }
+        @if (run.OverseasCount > 0)
+        {
+            <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="overseas">Download overseas file</a>
+        }
+        else
+        {
+            <span class="button disabled">No overseas rows</span>
+        }
+        <a class="text-link" asp-page="/Index">Convert another sheet</a>
+    </div>
+</section>
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Row</th>
+                <th>Organisation</th>
+                <th>File</th>
+                <th>Branch name</th>
+                <th>State</th>
+                <th>Country</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in run.Rows)
+            {
+                <tr class="@(row.Status == "Held" ? "held" : "ready")">
+                    <td>@row.SourceRowNumber</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.BranchName) ? "—" : row.BranchName)</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.State) ? "—" : row.State)</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.Country) ? "—" : row.Country)</td>
+                    <td>
+                        <strong>@row.Status</strong>
+                        @if (!string.IsNullOrWhiteSpace(row.Reason))
+                        {
+                            <span>@row.Reason</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>

@@ -1,0 +1,42 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Create Logi-Sys files";
+}
+
+<section class="panel">
+    <p class="eyebrow">Organisation master</p>
+    <h1>Turn the client sheet into the files Logi-Sys accepts.</h1>
+    <p class="lead">
+        Upload the workbook the client fills. India organisations are written into the India template.
+        Every other country is written into the overseas template. The city is used as the branch name.
+    </p>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p class="banner" role="alert">@Model.ErrorMessage</p>
+    }
+
+    <form method="post" enctype="multipart/form-data" data-convert-form>
+        <label class="file-field" for="client-file">
+            <span>Client workbook</span>
+            <input id="client-file" type="file" name="ClientFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
+        </label>
+        <button type="submit">Create Logi-Sys files</button>
+    </form>
+</section>
+
+<section class="steps">
+    <article>
+        <h2>1. Read</h2>
+        <p>Company name, organisation type, address, city, state, country, postal code, and email come from the client sheet.</p>
+    </article>
+    <article>
+        <h2>2. Check</h2>
+        <p>A row is held back when the country is unknown, the name is repeated, the city is a street, or the city and state are the same word and that word is not a state.</p>
+    </article>
+    <article>
+        <h2>3. Download</h2>
+        <p>Upload each finished file in Logi-Sys under Directories, Organisations, Import. Fix held rows in the client sheet and run them again.</p>
+    </article>
+</section>

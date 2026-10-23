@@ -1,0 +1,103 @@
+@page
+@model LogisysOrgConverter.Pages.Rules.IndexModel
+@{
+    ViewData["Title"] = "Country names and column map";
+}
+
+<section class="panel">
+    <p class="eyebrow">Stored in SQL Server</p>
+    <h1>Country names Logi-Sys will accept</h1>
+    <p class="lead">
+        The client sheet is matched on the text at the left. The name at the right is written into the Country column.
+        If Logi-Sys rejects a spelling, change that name and upload the sheet again.
+    </p>
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <p class="banner">@Model.Message</p>
+    }
+</section>
+
+<section class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Client text</th>
+                <th>Written to Logi-Sys</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var group in Model.Countries)
+            {
+                <tr>
+                    <td>@string.Join(", ", group.Aliases)</td>
+                    <td>
+                        <form method="post" asp-page-handler="Rename" class="inline-form">
+                            <input type="hidden" name="oldName" value="@group.Canonical" />
+                            <input name="canonical" value="@group.Canonical" aria-label="Logi-Sys name for @group.Canonical" />
+                            <button type="submit">Save</button>
+                        </form>
+                    </td>
+                    <td></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+<section class="panel add-country">
+    <h2>Add a country spelling</h2>
+    <form method="post" asp-page-handler="Add" class="add-form">
+        <label>
+            <span>Text in the client sheet</span>
+            <input name="alias" placeholder="USA" />
+        </label>
+        <label>
+            <span>Name Logi-Sys expects</span>
+            <input name="canonical" placeholder="United States of America" />
+        </label>
+        <button type="submit">Add</button>
+    </form>
+</section>
+
+<section class="panel">
+    <h2>Column map</h2>
+    <p class="lead">Branch name and city both come from the client city column. Organisation type becomes the yes flags.</p>
+    <div class="table-wrap flat">
+        <table>
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Logi-Sys column</th>
+                    <th>Rule</th>
+                    <th>Client column</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var map in Model.FieldMaps)
+                {
+                    <tr>
+                        <td>@(map.TemplateCode == "IN" ? "India" : "Overseas")</td>
+                        <td>@map.TargetHeader</td>
+                        <td>@RuleText(map)</td>
+                        <td>@(map.SourceColumn ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@functions {
+    private static string RuleText(LogisysOrgConverter.Data.FieldMap map) => map.Transform switch
+    {
+        "Name" => $"Company name, or column {map.FallbackColumn} when it is blank",
+        "Direct" => "Copy",
+        "Constant" => $"Always {map.ConstantValue}",
+        "Country" => "Country list",
+        "Email" => "Copy only a real email address",
+        "OrgFlag" => $"{map.FlagKey} from the organisation type",
+        "Registration" => "Copy the registration number",
+        _ => map.Transform
+    };
+}

@@ -1,0 +1,188 @@
+:root {
+    --ink: #1c1915;
+    --muted: #5c564c;
+    --line: #e4dccd;
+    --paper: #f6f1e8;
+    --panel: #fffdf8;
+    --green: #1f6b45;
+    --green-dark: #164e32;
+    --held: #8a3d12;
+    --held-bg: #fff1e6;
+    --ready-bg: #eef6f0;
+    --shadow: 0 16px 40px rgba(48, 36, 18, 0.06);
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    background:
+        radial-gradient(circle at top left, #efe4d2 0, transparent 28rem),
+        var(--paper);
+    font: 16px/1.5 "Segoe UI", "Avenir Next", "Trebuchet MS", sans-serif;
+}
+
+.site-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    padding: 1.1rem 6vw;
+}
+
+.brand {
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+    letter-spacing: -0.02em;
+}
+
+nav { display: flex; gap: 1.2rem; }
+
+nav a { color: var(--muted); text-decoration: none; font-weight: 600; }
+
+nav a:hover { color: var(--ink); }
+
+main { padding: 0.5rem 6vw 4rem; }
+
+.panel, .steps article, .table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+}
+
+.panel { padding: 1.6rem 1.5rem 1.4rem; }
+
+.eyebrow {
+    margin: 0 0 0.35rem;
+    color: var(--green);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+h1 {
+    margin: 0;
+    max-width: 22em;
+    font-size: clamp(1.8rem, 3vw, 2.7rem);
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+}
+
+h2 { margin: 0 0 0.4rem; font-size: 1.15rem; }
+
+.lead { max-width: 62ch; color: var(--muted); }
+
+.banner {
+    padding: 0.8rem 1rem;
+    border-radius: 12px;
+    background: var(--held-bg);
+    color: var(--held);
+}
+
+form[data-convert-form] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    align-items: end;
+    margin-top: 1.2rem;
+}
+
+.file-field, .add-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-weight: 650;
+}
+
+input[type="file"], input[type="text"], .inline-form input, .add-form input {
+    min-width: min(100%, 18rem);
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+}
+
+button, .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.8rem;
+    padding: 0.65rem 1rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--green);
+    color: white;
+    font: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+button:hover, .button:hover { background: var(--green-dark); }
+
+.button.secondary { background: var(--ink); }
+
+.button.disabled, button:disabled {
+    background: #d9d3c8;
+    color: #6e685e;
+    cursor: not-allowed;
+}
+
+.steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.8rem;
+    margin-top: 0.8rem;
+}
+
+.steps article { padding: 1rem 1rem 0.4rem; }
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.text-link { color: var(--green-dark); font-weight: 700; }
+
+.table-wrap { margin-top: 0.8rem; overflow-x: auto; }
+
+.table-wrap.flat { margin-top: 0.8rem; box-shadow: none; }
+
+table { width: 100%; border-collapse: collapse; min-width: 46rem; }
+
+th, td {
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+}
+
+th { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+
+tr.held { background: var(--held-bg); }
+
+tr.ready { background: var(--ready-bg); }
+
+td span { display: block; margin-top: 0.2rem; color: var(--muted); }
+
+.inline-form, .add-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
+
+.add-country { margin-top: 0.8rem; }
+
+@media (max-width: 800px) {
+    .site-header, main { padding-left: 1rem; padding-right: 1rem; }
+    .steps { grid-template-columns: 1fr; }
+    h1 { max-width: none; font-size: 1.7rem; }
+    form[data-convert-form], .add-form { display: grid; }
+    button, .button { width: 100%; }
+}

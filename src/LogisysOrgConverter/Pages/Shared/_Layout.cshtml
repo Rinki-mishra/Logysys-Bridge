@@ -1,0 +1,22 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Logi-Sys organisations</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" asp-page="/Index">Logi-Sys organisations</a>
+        <nav>
+            <a asp-page="/Index">Convert</a>
+            <a asp-page="/Rules/Index">Country list</a>
+        </nav>
+    </header>
+    <main>
+        @RenderBody()
+    </main>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+</body>
+</html>

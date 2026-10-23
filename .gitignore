@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+*.user
+TestResults/
+node_modules/
+.env*
+*.pem
+.DS_Store
