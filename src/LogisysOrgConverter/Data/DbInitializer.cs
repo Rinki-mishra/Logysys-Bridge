@@ -7,6 +7,9 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
+        var retired = MappingSeed.RetiredTargetHeaders.ToList();
+        db.FieldMaps.RemoveRange(await db.FieldMaps.Where(map => retired.Contains(map.TargetHeader)).ToListAsync(cancellationToken));
+
         if (!await db.FieldMaps.AnyAsync(cancellationToken))
         {
             db.FieldMaps.AddRange(MappingSeed.FieldMaps.Select(map => new FieldMap

@@ -59,8 +59,10 @@ public static class MappingSeed
         maps.Add(Map(template, "Telephone", "Direct", "AF", 160));
         maps.Add(Map(template, "EMailID", "Email", "AG", 170));
         maps.Add(Map(template, "Sales Person", "Direct", "V", 180));
-        maps.Add(Map(template, "Notification Email", "Email", "AG", 190));
     }
+
+    // Logi-Sys creates an ACC contact from both EMailID and Notification Email, so filling both fails the import on Org_Contacts.
+    public static IReadOnlyList<string> RetiredTargetHeaders { get; } = ["Notification Email"];
 
     private static FieldMapRule Map(string template, string header, string transform, string? source, int sort, string? constant = null) =>
         new(template, header, transform, source, constant, null, null, sort);

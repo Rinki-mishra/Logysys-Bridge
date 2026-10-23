@@ -39,7 +39,7 @@ public class ConversionTests
         Assert.Equal("Australia", createArt.Cells["Country"]);
         Assert.Equal("4562", createArt.Cells["PostalCode"]);
         Assert.Equal("georgina@createart.com.au", createArt.Cells["EMailID"]);
-        Assert.Equal("georgina@createart.com.au", createArt.Cells["Notification Email"]);
+        Assert.False(createArt.Cells.ContainsKey("Notification Email"));
 
         Assert.Equal("NY", result.Overseas[2].Cells["State"]);
         Assert.Equal("FLORIDA", result.Overseas[3].Cells["State"]);
@@ -78,6 +78,9 @@ public class ConversionTests
         Assert.Equal("Houston", Cell(overseas, 2, "BranchName"));
         Assert.Equal("yes", Cell(overseas, 2, "ISConsignee"));
         Assert.Equal(string.Empty, Cell(overseas, 2, "EMailID"));
+        Assert.Equal("georgina@createart.com.au", Cell(overseas, 3, "EMailID"));
+        Assert.Equal(string.Empty, Cell(overseas, 3, "Notification Email"));
+        Assert.Equal(string.Empty, Cell(india, 2, "Notification Email"));
         Assert.Equal("FULLY ORGANIC LLC", Cell(overseas, 5, "Name"));
         Assert.Equal(4, Names(overseas).Count(name => name.Length > 0));
     }
