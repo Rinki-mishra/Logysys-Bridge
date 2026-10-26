@@ -11,10 +11,13 @@ public class IndexModel : PageModel
     private readonly ConversionStore _store;
     private readonly GoogleDriveAccess _drive;
 
-    public IndexModel(ConversionStore store, GoogleDriveAccess drive)
+    private readonly GoogleVisitorAccess _visitor;
+
+    public IndexModel(ConversionStore store, GoogleDriveAccess drive, GoogleVisitorAccess visitor)
     {
         _store = store;
         _drive = drive;
+        _visitor = visitor;
     }
 
     public string? DriveAccount { get; private set; }
@@ -62,6 +65,11 @@ public class IndexModel : PageModel
         if (_drive.IsConfigured)
         {
             DriveAccount = (await _drive.GetConnectionAsync(cancellationToken))?.Email;
+        }
+
+        if (DriveAccount is null && _visitor.IsConfigured)
+        {
+            DriveAccount = $"{_visitor.Mailbox} (visitor access with the emailed code)";
         }
     }
 }

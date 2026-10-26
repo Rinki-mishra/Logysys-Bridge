@@ -27,6 +27,11 @@ builder.Services.AddScoped<NotificationStore>();
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.Section));
 builder.Services.AddHttpClient(GoogleDriveAccess.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddSingleton<GoogleDriveAccess>();
+builder.Services.Configure<MicrosoftOptions>(builder.Configuration.GetSection(MicrosoftOptions.Section));
+builder.Services.Configure<GoogleVisitorOptions>(builder.Configuration.GetSection(GoogleVisitorOptions.Section));
+builder.Services.AddHttpClient(OutlookCodeReader.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddSingleton<OutlookCodeReader>();
+builder.Services.AddSingleton<GoogleVisitorAccess>();
 builder.Services.AddScoped<GstCertificateReader>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {

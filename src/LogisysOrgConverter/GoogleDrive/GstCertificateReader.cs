@@ -6,10 +6,12 @@ namespace LogisysOrgConverter.GoogleDrive;
 public sealed class GstCertificateReader
 {
     private readonly GoogleDriveAccess _drive;
+    private readonly GoogleVisitorAccess _visitor;
 
-    public GstCertificateReader(GoogleDriveAccess drive)
+    public GstCertificateReader(GoogleDriveAccess drive, GoogleVisitorAccess visitor)
     {
         _drive = drive;
+        _visitor = visitor;
     }
 
     // Keyed by the exact link in the GST document column, which is how the converter looks them up.
@@ -33,29 +35,81 @@ public sealed class GstCertificateReader
             return results;
         }
 
-        try
+        if (await UsesGoogleSignInAsync(cancellationToken))
         {
-            await _drive.GetAccessTokenAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is GoogleDriveException or HttpRequestException or TaskCanceledException)
-        {
-            var problem = ex is GoogleDriveException ? ex.Message : "Google could not be reached";
-            foreach (var link in links.Keys)
+            try
             {
-                results[link] = GstCertificate.Failed(problem);
+                await _drive.GetAccessTokenAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is GoogleDriveException or HttpRequestException or TaskCanceledException)
+            {
+                return FailAll(links.Keys, ex is GoogleDriveException ? ex.Message : "Google could not be reached");
             }
 
+            await Parallel.ForEachAsync(
+                links,
+                new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = cancellationToken },
+                async (item, token) => results[item.Key] = await ReadAsync(item.Key, item.Value, _drive.DownloadAsync, token));
             return results;
         }
 
-        await Parallel.ForEachAsync(
-            links,
-            new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = cancellationToken },
-            async (item, token) => results[item.Key] = await ReadOneAsync(item.Key, item.Value, token));
+        if (!_visitor.IsConfigured)
+        {
+            return FailAll(links.Keys, "Google Drive is not connected; see the Google Drive page");
+        }
+
+        GoogleVisitorSession session;
+        try
+        {
+            session = await _visitor.OpenAsync(cancellationToken);
+        }
+        catch (GoogleDriveException ex)
+        {
+            return FailAll(links.Keys, ex.Message);
+        }
+
+        await using (session)
+        {
+            foreach (var (link, pan) in links)
+            {
+                results[link] = await ReadAsync(link, pan, session.DownloadAsync, cancellationToken);
+            }
+        }
+
         return results;
     }
 
     public async Task<GstCertificate> ReadOneAsync(string link, string? pan, CancellationToken cancellationToken)
+    {
+        if (await UsesGoogleSignInAsync(cancellationToken))
+        {
+            return await ReadAsync(link, pan, _drive.DownloadAsync, cancellationToken);
+        }
+
+        if (!_visitor.IsConfigured)
+        {
+            return GstCertificate.Failed("Google Drive is not connected; see the Google Drive page");
+        }
+
+        try
+        {
+            await using var session = await _visitor.OpenAsync(cancellationToken);
+            return await ReadAsync(link, pan, session.DownloadAsync, cancellationToken);
+        }
+        catch (GoogleDriveException ex)
+        {
+            return GstCertificate.Failed(ex.Message);
+        }
+    }
+
+    private async Task<bool> UsesGoogleSignInAsync(CancellationToken cancellationToken) =>
+        _drive.IsConfigured && await _drive.GetConnectionAsync(cancellationToken) is not null;
+
+    private static async Task<GstCertificate> ReadAsync(
+        string link,
+        string? pan,
+        Func<string, CancellationToken, Task<DriveFile>> download,
+        CancellationToken cancellationToken)
     {
         if (GoogleDriveAccess.FileId(link) is not { } fileId)
         {
@@ -64,16 +118,19 @@ public sealed class GstCertificateReader
 
         try
         {
-            var file = await _drive.DownloadAsync(fileId, cancellationToken);
+            var file = await download(fileId, cancellationToken);
             return GstinReader.FromFile(file.Content, file.MimeType, pan);
         }
         catch (GoogleDriveException ex)
         {
             return GstCertificate.Failed(ex.Message);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or Microsoft.Playwright.PlaywrightException)
         {
             return GstCertificate.Failed("Google Drive could not be reached");
         }
     }
+
+    private static ConcurrentDictionary<string, GstCertificate> FailAll(IEnumerable<string> links, string problem) =>
+        new(links.Select(link => KeyValuePair.Create(link, GstCertificate.Failed(problem))), StringComparer.Ordinal);
 }

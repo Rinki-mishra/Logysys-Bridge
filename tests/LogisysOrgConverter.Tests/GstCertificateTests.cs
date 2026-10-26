@@ -95,6 +95,22 @@ public class GstCertificateTests
         Assert.Contains("GST certificate not read (Google Drive is not connected)", lilaram.Reason);
     }
 
+    [Theory]
+    [InlineData("no-reply@accounts.google.com", "Your verification code", "Your Google verification code is 482913. It expires in 10 minutes.", "482913")]
+    [InlineData("drive-shares-dm-noreply@google.com", "Verify your email", "Use this PIN to access the file: 73104862", "73104862")]
+    [InlineData("no-reply@accounts.google.com", "G-552019 is your Google verification code", "", "552019")]
+    [InlineData("alerts@bank.com", "Your OTP code", "Code 123456", null)]
+    [InlineData("no-reply@accounts.google.com", "Security alert", "New sign-in on Windows", null)]
+    public void Google_code_is_taken_only_from_google_emails(string from, string subject, string body, string? code)
+    {
+        var reader = new OutlookCodeReader(
+            Microsoft.Extensions.Options.Options.Create(new MicrosoftOptions()),
+            null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<OutlookCodeReader>.Instance);
+
+        Assert.Equal(code, reader.ExtractCode(from, subject, body));
+    }
+
     private static ConversionResult Convert(IReadOnlyDictionary<string, GstCertificate>? certificates)
     {
         using var stream = File.OpenRead(Fixture);
