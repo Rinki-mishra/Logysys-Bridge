@@ -1,0 +1,97 @@
+@page
+@model LogisysOrgConverter.Pages.Existing.IndexModel
+@using LogisysOrgConverter.Pages.Runs
+@{
+    ViewData["Title"] = "Organisations already in Logi-Sys";
+}
+
+<section class="panel">
+    <p class="eyebrow">No duplicates</p>
+    <h1>Organisations already in Logi-Sys</h1>
+    <p class="lead">
+        A request for any organisation on this list, or one this app has already marked created, is never put in the India or overseas file.
+        Its new address goes into the address updates file instead. Names match ignoring capitals, spaces and punctuation.
+    </p>
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <p class="banner ok" role="status">@Model.Message</p>
+    }
+    <p>
+        <strong>@Model.Count</strong> @(Model.Count == 1 ? "organisation" : "organisations") on the list.
+        @if (Model.LastAddedUtc is DateTime last)
+        {
+            <text>Last updated @DetailModel.IndiaTime(last).ToString("d MMM yyyy, HH:mm") IST.</text>
+        }
+    </p>
+</section>
+
+<section class="panel">
+    <h2>Upload the Logi-Sys organisation list</h2>
+    <p class="lead">Export the organisation master from Logi-Sys as .xlsx or .csv. The column headed Name is read (or column A). The upload replaces the current list.</p>
+    <form method="post" asp-page-handler="Upload" enctype="multipart/form-data" class="add-form">
+        <label class="file-field">
+            <span>Organisation list</span>
+            <input type="file" name="list" accept=".xlsx,.csv" required />
+        </label>
+        <button type="submit">Replace list</button>
+    </form>
+</section>
+
+<section class="panel add-country">
+    <h2>Add one organisation</h2>
+    <form method="post" asp-page-handler="Add" class="add-form">
+        <label>
+            <span>Name as in Logi-Sys</span>
+            <input name="name" placeholder="S D BAKHAI & CO" />
+        </label>
+        <button type="submit">Add</button>
+    </form>
+</section>
+
+<section class="panel">
+    <form method="get" class="add-form">
+        <label>
+            <span>Search</span>
+            <input name="q" value="@Model.Q" placeholder="Organisation name" />
+        </label>
+        <button type="submit" class="ghost">Search</button>
+    </form>
+</section>
+
+@if (Model.Organisations.Count == 0)
+{
+    <section class="panel">
+        <p class="lead">@(string.IsNullOrWhiteSpace(Model.Q) ? "The list is empty. Upload the Logi-Sys export above." : "No organisation matches that search.")</p>
+    </section>
+}
+else
+{
+    <section class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Organisation</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var organisation in Model.Organisations)
+                {
+                    <tr>
+                        <td>@organisation.Name</td>
+                        <td>
+                            <form method="post" asp-page-handler="Remove" asp-route-q="@Model.Q" class="inline-form">
+                                <input type="hidden" name="id" value="@organisation.Id" />
+                                <button type="submit" class="small ghost">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (Model.Organisations.Count == Model.Limit)
+        {
+            <p class="lead">Showing the first @Model.Limit. Search to find others.</p>
+        }
+    </section>
+}

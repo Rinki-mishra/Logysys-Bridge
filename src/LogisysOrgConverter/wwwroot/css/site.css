@@ -175,6 +175,8 @@ tr.ready { background: var(--ready-bg); }
 
 tr.merged td { color: var(--muted); }
 
+td span.warning { color: #a4471c; font-weight: 600; }
+
 td span { display: block; margin-top: 0.2rem; color: var(--muted); }
 
 .inline-form, .add-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }

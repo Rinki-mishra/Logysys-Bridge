@@ -44,8 +44,30 @@ public sealed class ConversionStore
             OverseasCount = result.Overseas.Count,
             HeldCount = result.Held.Count,
             IndiaFile = result.India.Count == 0 ? null : _writer.Write(_templates.India, result.India),
-            OverseasFile = result.Overseas.Count == 0 ? null : _writer.Write(_templates.Overseas, result.Overseas)
+            OverseasFile = result.Overseas.Count == 0 ? null : _writer.Write(_templates.Overseas, result.Overseas),
+            UpdatesFile = result.Updates.Any(update => update.HasAddress) ? AddressUpdateWriter.Write(result.Updates) : null
         };
+
+        foreach (var update in result.Updates)
+        {
+            run.Rows.Add(new ConversionRunRow
+            {
+                RunId = run.Id,
+                SourceRowNumber = update.SourceRowNumber,
+                OrganisationName = update.Name,
+                Status = RowStatuses.Update,
+                Template = string.Empty,
+                Reason = update.HasAddress
+                    ? HoldReason.AlreadyExists(update.ExistsIn)
+                    : HoldReason.AlreadyExistsWithoutAddress(update.ExistsIn),
+                BranchName = NullIfBlank(update.City),
+                City = NullIfBlank(update.City),
+                State = NullIfBlank(update.State),
+                Country = NullIfBlank(update.Country),
+                RequesterEmail = update.RequesterEmail,
+                RequesterName = NullIfBlank(update.RequesterName)
+            });
+        }
 
         foreach (var ready in result.India.Concat(result.Overseas).OrderBy(item => item.SourceRowNumber))
         {
@@ -123,8 +145,31 @@ public sealed class ConversionStore
             lookup[alias.AliasKey] = alias.CanonicalName;
         }
 
+        var existing = new Dictionary<string, string>(StringComparer.Ordinal);
+        var created = await (
+                from row in _db.RunRows.AsNoTracking()
+                join run in _db.Runs.AsNoTracking() on row.RunId equals run.Id
+                where row.Status == RowStatuses.Ready && row.ImportStatus == ImportStatuses.Created
+                orderby run.CreatedAtUtc
+                select new { row.OrganisationName, run.SourceFileName, run.CreatedAtUtc })
+            .ToListAsync(cancellationToken);
+        foreach (var item in created)
+        {
+            var key = OrganisationConverter.NameKey(item.OrganisationName);
+            if (key.Length > 0)
+            {
+                existing.TryAdd(key, $"created by this app from {item.SourceFileName}, converted {IndiaDate(item.CreatedAtUtc)}");
+            }
+        }
+
+        foreach (var key in await _db.ExistingOrganisations.AsNoTracking().Select(item => item.NameKey).ToListAsync(cancellationToken))
+        {
+            existing.TryAdd(key, "on the Logi-Sys organisation list");
+        }
+
         return new MappingCatalog
         {
+            ExistingOrganisations = existing,
             CountryAliases = lookup,
             KnownStates = states.Select(state => new KnownStateRule(state.CountryCanonical, state.Name, state.Abbreviation, state.GstCode)).ToList(),
             FieldMaps = maps.Select(map => new FieldMapRule(
@@ -154,6 +199,44 @@ public sealed class ConversionStore
         RequesterEmail = ready.RequesterEmail,
         RequesterName = NullIfBlank(ready.RequesterName)
     };
+
+    // Ready rows of this run that also sit, not yet imported, in another run's file.
+    public async Task<IReadOnlyDictionary<int, string>> GetPendingElsewhereAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var mine = await _db.RunRows.AsNoTracking()
+            .Where(row => row.RunId == runId && row.Status == RowStatuses.Ready && row.ImportStatus == null)
+            .Select(row => new { row.Id, row.OrganisationName })
+            .ToListAsync(cancellationToken);
+        if (mine.Count == 0)
+        {
+            return new Dictionary<int, string>();
+        }
+
+        var others = await (
+                from row in _db.RunRows.AsNoTracking()
+                join run in _db.Runs.AsNoTracking() on row.RunId equals run.Id
+                where row.RunId != runId && row.Status == RowStatuses.Ready && row.ImportStatus == null
+                select new { row.OrganisationName, run.SourceFileName, run.CreatedAtUtc })
+            .ToListAsync(cancellationToken);
+        var byKey = others
+            .GroupBy(item => OrganisationConverter.NameKey(item.OrganisationName))
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.CreatedAtUtc).First());
+
+        var result = new Dictionary<int, string>();
+        foreach (var row in mine)
+        {
+            if (byKey.TryGetValue(OrganisationConverter.NameKey(row.OrganisationName), out var other))
+            {
+                result[row.Id] = $"Also in the {other.SourceFileName} files converted {IndiaDate(other.CreatedAtUtc)}, not imported yet. Import it from only one of them.";
+            }
+        }
+
+        return result;
+    }
+
+    private static string IndiaDate(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata"))
+            .ToString("d MMM yyyy, HH:mm") + " IST";
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

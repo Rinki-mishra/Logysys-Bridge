@@ -15,6 +15,12 @@ public static class HoldReason
     public static string MergedInto(int row) =>
         $"Same organisation as row {row}. Not created again; its address was used for row {row}.";
 
+    public static string AlreadyExists(string existsIn) =>
+        $"Already in Logi-Sys ({existsIn}). Not created again; the new address is in the address updates file.";
+
+    public static string AlreadyExistsWithoutAddress(string existsIn) =>
+        $"Already in Logi-Sys ({existsIn}). Not created again. The request has no usable city and country, so there is no address to update.";
+
     public static string MergedIntoWithoutAddress(int row) =>
         $"Same organisation as row {row}. Not created again.";
 

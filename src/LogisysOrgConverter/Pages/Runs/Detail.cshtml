@@ -5,7 +5,8 @@
     ViewData["Title"] = "Converted files";
     var run = Model.Run!;
     var when = DetailModel.IndiaTime(run.CreatedAtUtc).ToString("d MMM yyyy, HH:mm");
-    var mergedCount = run.Rows.Count(row => row.Status == "Merged");
+    var mergedCount = run.Rows.Count(row => row.Status == RowStatuses.Merged);
+    var updateCount = run.Rows.Count(row => row.Status == RowStatuses.Update);
     var templates = new[] { ("India", run.IndiaCount), ("Overseas", run.OverseasCount) }.Where(item => item.Item2 > 0).ToList();
 }
 
@@ -15,6 +16,9 @@
     <p class="lead">Converted @when IST. Ready rows are in the download files. Held rows were left out.@if (mergedCount > 0)
         {
             <text> @mergedCount repeated @(mergedCount == 1 ? "row was" : "rows were") merged into the first row for the same organisation, so it is created once.</text>
+        }@if (updateCount > 0)
+        {
+            <text> @updateCount @(updateCount == 1 ? "organisation is" : "organisations are") already in Logi-Sys and will not be created again; apply the new address from the address updates file.</text>
         }</p>
 
     @if (!string.IsNullOrEmpty(Model.Message))
@@ -38,6 +42,10 @@
         else
         {
             <span class="button disabled">No overseas rows</span>
+        }
+        @if (run.UpdatesFile is { Length: > 0 })
+        {
+            <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="updates">Download address updates</a>
         }
         <a class="text-link" asp-page="/Index">Convert another sheet</a>
     </div>
@@ -120,7 +128,7 @@
         <tbody>
             @foreach (var row in run.Rows)
             {
-                <tr class="@(row.Status == "Merged" ? "merged" : row.Status == "Held" ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
+                <tr class="@(row.Status is RowStatuses.Merged or RowStatuses.Update ? "merged" : row.Status == RowStatuses.Held ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
                     <td>@row.SourceRowNumber</td>
                     <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
                     <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
@@ -131,10 +139,14 @@
                         <span>@(row.RequesterEmail ?? "No email in column B")</span>
                     </td>
                     <td>
-                        <strong>@row.Status</strong>
+                        <strong>@(row.Status == RowStatuses.Update ? "Address update" : row.Status)</strong>
                         @if (!string.IsNullOrWhiteSpace(row.Reason))
                         {
                             <span>@row.Reason</span>
+                        }
+                        @if (Model.PendingElsewhere.TryGetValue(row.Id, out var pending))
+                        {
+                            <span class="warning">@pending</span>
                         }
                     </td>
                     <td>

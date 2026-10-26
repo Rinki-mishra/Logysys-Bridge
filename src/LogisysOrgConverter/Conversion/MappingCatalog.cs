@@ -22,6 +22,9 @@ public sealed class MappingCatalog
 
     public required IReadOnlyList<KnownStateRule> KnownStates { get; init; }
 
+    // Name key (see OrganisationConverter.NameKey) of every organisation already in Logi-Sys, with where it was found.
+    public IReadOnlyDictionary<string, string> ExistingOrganisations { get; init; } = new Dictionary<string, string>();
+
     public const string IndiaTemplate = "IN";
 
     public const string OverseasTemplate = "OVERSEAS";

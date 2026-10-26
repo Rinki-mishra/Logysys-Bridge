@@ -19,6 +19,7 @@ builder.Services.AddSingleton(new TemplatePaths
     Overseas = Path.Combine(builder.Environment.ContentRootPath, "Templates", "OrgMaster-Overseas-Template.xlsx")
 });
 builder.Services.AddScoped<ConversionStore>();
+builder.Services.AddScoped<ExistingOrganisationStore>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
 builder.Services.AddSingleton<MailDelivery>();
 builder.Services.AddScoped<NotificationStore>();

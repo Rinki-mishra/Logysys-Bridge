@@ -26,6 +26,24 @@ public sealed record MergedOrganisation(
     string? RequesterEmail,
     string? RequesterName);
 
+public sealed record AddressUpdate(
+    int SourceRowNumber,
+    string Name,
+    string ExistsIn,
+    string BranchAddress1,
+    string BranchAddress2,
+    string BranchAddress3,
+    string City,
+    string State,
+    string Country,
+    string PostalCode,
+    string Telephone,
+    bool HasAddress,
+    DateTime? RequestedAt,
+    int? AddressFromRow,
+    string? RequesterEmail = null,
+    string? RequesterName = null);
+
 public sealed record HeldOrganisation(
     int SourceRowNumber,
     string Name,
@@ -46,6 +64,8 @@ public sealed class ConversionResult
     public List<HeldOrganisation> Held { get; } = [];
 
     public List<MergedOrganisation> Merged { get; } = [];
+
+    public List<AddressUpdate> Updates { get; } = [];
 }
 
 public sealed class OrganisationConverter
@@ -89,6 +109,29 @@ public sealed class OrganisationConverter
             var requesterEmail = CleanEmail(Value(row, "B"));
             var requesterName = Value(row, "D");
             var reasons = new List<string>();
+
+            if (name.Length > 0 && catalog.ExistingOrganisations.TryGetValue(NameKey(name), out var existsIn))
+            {
+                var requestedAt = RequestedAt(row);
+                result.Updates.Add(new AddressUpdate(
+                    row.RowNumber,
+                    name,
+                    existsIn,
+                    Value(row, "Y"),
+                    Value(row, "Z"),
+                    Value(row, "AA"),
+                    city,
+                    state,
+                    canonical ?? countryRaw,
+                    Value(row, "AE"),
+                    Value(row, "AF"),
+                    HasText(city) && HasText(countryRaw),
+                    requestedAt == DateTime.MinValue ? null : requestedAt,
+                    addressFromRow,
+                    requesterEmail,
+                    requesterName));
+                continue;
+            }
 
             if (name.Length == 0)
             {
@@ -419,7 +462,7 @@ public sealed class OrganisationConverter
     private static ClientRow WithAddressFrom(ClientRow target, ClientRow source)
     {
         var cells = new Dictionary<string, string>(target.Cells, StringComparer.OrdinalIgnoreCase);
-        foreach (var column in AddressColumns)
+        foreach (var column in AddressColumns.Append("A"))
         {
             var value = Value(source, column);
             if (value.Length > 0)
@@ -463,7 +506,7 @@ public sealed class OrganisationConverter
 
     private static bool HasText(string value) => value.Any(char.IsLetterOrDigit);
 
-    private static string NameKey(string name) => NonAlphanumeric.Replace(name.ToUpperInvariant(), string.Empty);
+    public static string NameKey(string name) => NonAlphanumeric.Replace(name.ToUpperInvariant(), string.Empty);
 
     private static ClientRow UseInvoicedSectionWhenMainIsBlank(ClientRow row)
     {

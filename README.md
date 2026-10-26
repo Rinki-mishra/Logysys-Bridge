@@ -9,6 +9,15 @@ Turns the client organisation workbook into the two Excel files Logi-Sys accepts
 - An organisation listed more than once (names compared ignoring case, spaces and punctuation) is created once. The first row is kept; its address comes from the latest request (column A timestamp) that has a city and country, its organisation types are added, and blank fields are filled from it. The later row shows as Merged.
 - Rows with a missing name, an unknown country, a street in the city column, a city that repeats a non-state, or a bad India PAN / GSTIN are left out and listed with the reason.
 
+## No duplicates
+
+An organisation that is already in Logi-Sys is never put in the India or overseas file. It is treated as existing when:
+
+- it was marked created in an earlier run of this app, or
+- it is on the **Existing organisations** page. Upload the organisation list exported from Logi-Sys there (`.xlsx` or `.csv`, column headed Name or column A); each upload replaces the list. Single names can be added by hand.
+
+Such a request shows as **Address update** on the run page, and its address (from the latest request) goes into **Download address updates**, a sheet to apply in Logi-Sys. If an organisation is also waiting, not yet imported, in an earlier run's file, the run page warns you to import it from only one of them.
+
 The column map and the country spellings are stored in SQL Server. Change a country name on the Country list page when Logi-Sys expects a different spelling, then upload the sheet again.
 
 ## Run

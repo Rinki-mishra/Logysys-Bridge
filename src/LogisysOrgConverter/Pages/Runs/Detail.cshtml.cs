@@ -24,6 +24,8 @@ public class DetailModel : PageModel
 
     public IReadOnlyList<EmailNotification> Sent { get; private set; } = [];
 
+    public IReadOnlyDictionary<int, string> PendingElsewhere { get; private set; } = new Dictionary<int, string>();
+
     public bool UsesSmtp => _delivery.UsesSmtp;
 
     public string PickupFolder => _delivery.PickupFolder;
@@ -41,6 +43,7 @@ public class DetailModel : PageModel
 
         Drafts = await _notifications.GetDraftsAsync(id, cancellationToken);
         Sent = await _notifications.GetNotificationsAsync(id, cancellationToken);
+        PendingElsewhere = await _store.GetPendingElsewhereAsync(id, cancellationToken);
         return Page();
     }
 
@@ -99,15 +102,19 @@ public class DetailModel : PageModel
             return NotFound();
         }
 
-        var india = string.Equals(which, "india", StringComparison.OrdinalIgnoreCase);
-        var bytes = india ? run.IndiaFile : run.OverseasFile;
+        var stamp = IndiaTime(run.CreatedAtUtc).ToString("yyyyMMdd-HHmm");
+        var (bytes, name) = which.ToLowerInvariant() switch
+        {
+            "india" => (run.IndiaFile, $"OrgMaster-IN-{stamp}.xlsx"),
+            "overseas" => (run.OverseasFile, $"OrgMaster-Overseas-{stamp}.xlsx"),
+            "updates" => (run.UpdatesFile, $"OrgMaster-AddressUpdates-{stamp}.xlsx"),
+            _ => (null, string.Empty)
+        };
         if (bytes is null || bytes.Length == 0)
         {
             return NotFound();
         }
 
-        var stamp = IndiaTime(run.CreatedAtUtc).ToString("yyyyMMdd-HHmm");
-        var name = india ? $"OrgMaster-IN-{stamp}.xlsx" : $"OrgMaster-Overseas-{stamp}.xlsx";
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
     }
 

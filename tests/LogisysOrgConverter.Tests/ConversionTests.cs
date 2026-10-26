@@ -191,6 +191,67 @@ public class ConversionTests
         Assert.Empty(result.Held);
     }
 
+    [Fact]
+    public void Organisation_already_in_logisys_becomes_an_address_update_from_the_latest_request()
+    {
+        using var stream = BuildSheet(
+            Row(("A", "20/10/2026 09:00:00"), ("W", "S D Bakhai and Co"), ("X", "Shipper"), ("Y", "Old Plot 1"), ("AB", "Thane"), ("AC", "Maharashtra"), ("AD", "India")),
+            Row(("A", "21/10/2026 09:00:00"), ("W", "New Org"), ("X", "Shipper"), ("AB", "Pune"), ("AC", "Maharashtra"), ("AD", "India")),
+            Row(("A", "26/10/2026 09:00:00"), ("W", "S.D. BAKHAI AND CO."), ("X", "Shipper"), ("Y", "201 Sharda Chambers"), ("AB", "Mumbai"), ("AC", "Maharashtra"), ("AD", "INDIA"), ("AE", "400020")),
+            Row(("W", "Ghost Ltd"), ("X", "Consignee"), ("AB", "."), ("AD", ".")));
+        var seed = MappingSeed.CreateCatalog();
+        var catalog = new MappingCatalog
+        {
+            FieldMaps = seed.FieldMaps,
+            CountryAliases = seed.CountryAliases,
+            KnownStates = seed.KnownStates,
+            ExistingOrganisations = new Dictionary<string, string>
+            {
+                [OrganisationConverter.NameKey("S D BAKHAI AND CO")] = "on the Logi-Sys organisation list",
+                [OrganisationConverter.NameKey("GHOST LTD")] = "on the Logi-Sys organisation list"
+            }
+        };
+
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), catalog);
+
+        Assert.Equal(["New Org"], result.India.Select(row => row.Name).ToArray());
+        Assert.Empty(result.Overseas);
+        Assert.Empty(result.Held);
+        var bakhai = result.Updates.Single(row => row.SourceRowNumber == 2);
+        Assert.True(bakhai.HasAddress);
+        Assert.Equal(("201 Sharda Chambers", "Mumbai", "India", "400020", 4), (bakhai.BranchAddress1, bakhai.City, bakhai.Country, bakhai.PostalCode, bakhai.AddressFromRow));
+        Assert.Equal(new DateTime(2026, 10, 26, 9, 0, 0), bakhai.RequestedAt);
+        Assert.False(result.Updates.Single(row => row.Name == "Ghost Ltd").HasAddress);
+        Assert.Equal(4, Assert.Single(result.Merged).SourceRowNumber);
+
+        using var updates = Open(AddressUpdateWriter.Write(result.Updates));
+        var sheet = updates.Worksheet(1);
+        Assert.Equal("S D Bakhai and Co", sheet.Cell(2, 1).GetString());
+        Assert.Equal("Mumbai", sheet.Cell(2, 2).GetString());
+        Assert.Equal("201 Sharda Chambers", sheet.Cell(2, 3).GetString());
+        Assert.True(sheet.Cell(3, 1).IsEmpty());
+    }
+
+    [Fact]
+    public void Organisation_list_reads_the_name_column()
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("Orgs");
+        sheet.Cell(1, 1).Value = "Code";
+        sheet.Cell(1, 2).Value = "Name";
+        sheet.Cell(2, 1).Value = "C1";
+        sheet.Cell(2, 2).Value = "Terra Granite";
+        sheet.Cell(3, 2).Value = " ";
+        sheet.Cell(4, 2).Value = "CreateART";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+
+        Assert.Equal(["Terra Granite", "CreateART"], OrganisationListReader.Read(stream, "orgs.xlsx"));
+        using var csv = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Org Name,City\n\"Acme, Inc\",Pune\nZed Ltd,Goa\n"));
+        Assert.Equal(["Acme, Inc", "Zed Ltd"], OrganisationListReader.Read(csv, "orgs.csv"));
+    }
+
     private static Dictionary<string, string> Row(params (string Column, string Value)[] cells) =>
         cells.ToDictionary(cell => cell.Column, cell => cell.Value, StringComparer.OrdinalIgnoreCase);
 

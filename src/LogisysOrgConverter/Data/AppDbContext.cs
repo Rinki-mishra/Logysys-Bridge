@@ -20,6 +20,8 @@ public sealed class AppDbContext : DbContext
 
     public DbSet<EmailNotification> EmailNotifications => Set<EmailNotification>();
 
+    public DbSet<ExistingOrganisation> ExistingOrganisations => Set<ExistingOrganisation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<CountryAlias>(entity =>
@@ -82,6 +84,14 @@ public sealed class AppDbContext : DbContext
             entity.Property(item => item.Delivery).HasMaxLength(20);
             entity.Property(item => item.Status).HasMaxLength(20);
             entity.HasIndex(item => item.RunId);
+        });
+
+        modelBuilder.Entity<ExistingOrganisation>(entity =>
+        {
+            entity.ToTable("ExistingOrganisations");
+            entity.Property(item => item.Name).HasMaxLength(300);
+            entity.Property(item => item.NameKey).HasMaxLength(300);
+            entity.HasIndex(item => item.NameKey).IsUnique();
         });
     }
 }

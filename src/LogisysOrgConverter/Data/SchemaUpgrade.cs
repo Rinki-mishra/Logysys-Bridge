@@ -43,5 +43,24 @@ public static class SchemaUpgrade
             END
             """,
             cancellationToken);
+
+        await db.Database.ExecuteSqlRawAsync(
+            "IF COL_LENGTH('dbo.Runs', 'UpdatesFile') IS NULL ALTER TABLE dbo.Runs ADD [UpdatesFile] varbinary(max) NULL;",
+            cancellationToken);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            IF OBJECT_ID('dbo.ExistingOrganisations', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.ExistingOrganisations (
+                    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT PK_ExistingOrganisations PRIMARY KEY,
+                    [Name] nvarchar(300) NOT NULL,
+                    [NameKey] nvarchar(300) NOT NULL,
+                    [AddedAtUtc] datetime2 NOT NULL
+                );
+                CREATE UNIQUE INDEX IX_ExistingOrganisations_NameKey ON dbo.ExistingOrganisations ([NameKey]);
+            END
+            """,
+            cancellationToken);
     }
 }

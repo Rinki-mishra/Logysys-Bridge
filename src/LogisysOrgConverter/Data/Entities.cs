@@ -63,6 +63,8 @@ public sealed class ConversionRun
 
     public byte[]? OverseasFile { get; set; }
 
+    public byte[]? UpdatesFile { get; set; }
+
     public List<ConversionRunRow> Rows { get; set; } = [];
 }
 
@@ -101,6 +103,28 @@ public sealed class ConversionRunRow
     public DateTime? ImportUpdatedAtUtc { get; set; }
 
     public DateTime? EmailedAtUtc { get; set; }
+}
+
+public sealed class ExistingOrganisation
+{
+    public int Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string NameKey { get; set; } = string.Empty;
+
+    public DateTime AddedAtUtc { get; set; }
+}
+
+public static class RowStatuses
+{
+    public const string Ready = "Ready";
+
+    public const string Held = "Held";
+
+    public const string Merged = "Merged";
+
+    public const string Update = "Update";
 }
 
 public static class ImportStatuses
