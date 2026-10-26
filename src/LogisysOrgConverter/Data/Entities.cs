@@ -109,6 +109,15 @@ public sealed class ConversionRunRow
     public DateTime? LedgerLinkedAtUtc { get; set; }
 
     public DateTime? LedgerRequestedAtUtc { get; set; }
+
+    // Template cells kept for overseas agents, whose file is only written once they are approved.
+    public string? CellsJson { get; set; }
+
+    public string? ApprovalDetails { get; set; }
+
+    public DateTime? ApprovalRequestedAtUtc { get; set; }
+
+    public DateTime? ApprovalDecidedAtUtc { get; set; }
 }
 
 public sealed class ExistingOrganisation
@@ -143,6 +152,19 @@ public static class RowStatuses
     public const string Merged = "Merged";
 
     public const string Update = "Update";
+
+    public const string Approval = "Approval";
+
+    public const string Rejected = "Rejected";
+}
+
+public static class RowTemplates
+{
+    public const string India = "India";
+
+    public const string Overseas = "Overseas";
+
+    public const string OverseasAgent = "Overseas agent";
 }
 
 public static class ImportStatuses

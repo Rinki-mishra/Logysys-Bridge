@@ -28,6 +28,10 @@ public class DetailModel : PageModel
 
     public IReadOnlyDictionary<int, string> PendingElsewhere { get; private set; } = new Dictionary<int, string>();
 
+    public EmailDraft? ApprovalDraft { get; private set; }
+
+    public string AgentApprover => _notifications.AgentApprover;
+
     public bool UsesSmtp => _delivery.UsesSmtp;
 
     public string PickupFolder => _delivery.PickupFolder;
@@ -46,13 +50,14 @@ public class DetailModel : PageModel
         Drafts = await _notifications.GetDraftsAsync(id, cancellationToken);
         Sent = await _notifications.GetNotificationsAsync(id, cancellationToken);
         LedgerDrafts = await _notifications.GetLedgerDraftsAsync(id, cancellationToken);
+        ApprovalDraft = await _notifications.GetAgentApprovalDraftAsync(id, cancellationToken);
         PendingElsewhere = await _store.GetPendingElsewhereAsync(id, cancellationToken);
         return Page();
     }
 
     public async Task<IActionResult> OnPostImportResultAsync(Guid id, string template, IFormFile? log, bool markAll, CancellationToken cancellationToken)
     {
-        if (template is not ("India" or "Overseas"))
+        if (template is not (RowTemplates.India or RowTemplates.Overseas or RowTemplates.OverseasAgent))
         {
             return BadRequest();
         }
@@ -107,6 +112,25 @@ public class DetailModel : PageModel
         return RedirectToPage(null, null, new { id }, "ledger");
     }
 
+    public async Task<IActionResult> OnPostSendApprovalAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var summary = await _notifications.SendAgentApprovalAsync(id, cancellationToken);
+        var verb = summary.Delivery == "SMTP" ? $"sent to {AgentApprover}" : "saved to the outgoing mail folder";
+        Message = summary.Failed == 0
+            ? summary.Sent == 0 ? "No agents are waiting to be sent for approval." : $"Approval request {verb}."
+            : "The approval request could not be sent; see the email history below.";
+        return RedirectToPage(null, null, new { id }, "agents");
+    }
+
+    public async Task<IActionResult> OnPostAgentAsync(Guid id, int rowId, bool approved, CancellationToken cancellationToken)
+    {
+        var changed = await _store.DecideAgentAsync(id, rowId, approved, cancellationToken);
+        Message = changed
+            ? approved ? "Marked approved. The agent is in the approved agents file." : "Marked not approved. The agent will not be created."
+            : "That agent could not be changed (it may already be imported).";
+        return RedirectToPage(null, null, new { id }, "agents");
+    }
+
     public async Task<IActionResult> OnPostLedgerAsync(Guid id, int rowId, bool linked, CancellationToken cancellationToken)
     {
         var changed = await _store.SetLedgerLinkedAsync(id, rowId, linked, cancellationToken);
@@ -143,6 +167,7 @@ public class DetailModel : PageModel
             "india" => (run.IndiaFile, $"OrgMaster-IN-{stamp}.xlsx"),
             "overseas" => (run.OverseasFile, $"OrgMaster-Overseas-{stamp}.xlsx"),
             "updates" => (run.UpdatesFile, $"OrgMaster-AddressUpdates-{stamp}.xlsx"),
+            "agents" => (await _store.GetApprovedAgentsFileAsync(id, cancellationToken), $"OrgMaster-Overseas-ApprovedAgents-{stamp}.xlsx"),
             _ => (null, string.Empty)
         };
         if (bytes is null || bytes.Length == 0)

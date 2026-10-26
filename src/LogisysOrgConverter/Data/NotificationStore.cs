@@ -135,6 +135,25 @@ public sealed class NotificationStore
     public async Task<SendSummary> SendLedgerRequestsAsync(Guid runId, CancellationToken cancellationToken = default) =>
         await SendDraftsAsync(runId, await GetLedgerDraftsAsync(runId, cancellationToken), (row, now) => row.LedgerRequestedAtUtc = now, cancellationToken);
 
+    public string AgentApprover => _options.AgentApprover;
+
+    public async Task<EmailDraft?> GetAgentApprovalDraftAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.RunRows.AsNoTracking()
+            .Where(row => row.RunId == runId && row.Status == RowStatuses.Approval && row.ApprovalRequestedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        return AgentApprovalComposer.Compose(
+            rows.Select(row => new AgentForApproval(row.Id, row.OrganisationName, row.City, row.Country, row.ApprovalDetails, row.RequesterEmail, row.RequesterName)).ToList(),
+            _options);
+    }
+
+    public async Task<SendSummary> SendAgentApprovalAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var draft = await GetAgentApprovalDraftAsync(runId, cancellationToken);
+        return await SendDraftsAsync(runId, draft is null ? [] : [draft], (row, now) => row.ApprovalRequestedAtUtc = now, cancellationToken);
+    }
+
     private async Task<SendSummary> SendDraftsAsync(
         Guid runId,
         IReadOnlyList<EmailDraft> drafts,

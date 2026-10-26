@@ -20,6 +20,9 @@ public sealed class EmailOptions
 
     public string Signature { get; set; } = "Regards,\nOrganisation Master Team";
 
+    // Overseas agents are created only after this person approves them.
+    public string AgentApprover { get; set; } = "pankaj@tnpsfl.com";
+
     public string PickupFolder { get; set; } = "OutgoingMail";
 
     public SmtpOptions Smtp { get; set; } = new();

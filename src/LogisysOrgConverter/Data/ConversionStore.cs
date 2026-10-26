@@ -1,6 +1,9 @@
 using LogisysOrgConverter.Conversion;
+using System.Text.Json;
 using LogisysOrgConverter.GoogleDrive;
+using LogisysOrgConverter.Notifications;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LogisysOrgConverter.Data;
 
@@ -18,14 +21,17 @@ public sealed class ConversionStore
     private readonly TemplateWorkbookWriter _writer;
     private readonly TemplatePaths _templates;
     private readonly GstCertificateReader _certificates;
+    private readonly EmailOptions _email;
 
     public ConversionStore(
         AppDbContext db,
         OrganisationConverter converter,
         TemplateWorkbookWriter writer,
         TemplatePaths templates,
-        GstCertificateReader certificates)
+        GstCertificateReader certificates,
+        IOptions<EmailOptions> email)
     {
+        _email = email.Value;
         _db = db;
         _converter = converter;
         _writer = writer;
@@ -78,6 +84,17 @@ public sealed class ConversionStore
         foreach (var ready in result.India.Concat(result.Overseas).OrderBy(item => item.SourceRowNumber))
         {
             run.Rows.Add(ToRow(run.Id, ready));
+        }
+
+        foreach (var agent in result.AwaitingApproval)
+        {
+            var row = ToRow(run.Id, agent);
+            row.Status = RowStatuses.Approval;
+            row.Template = RowTemplates.OverseasAgent;
+            row.Reason = HoldReason.AgentNeedsApproval(_email.AgentApprover);
+            row.ApprovalDetails = agent.Note;
+            row.CellsJson = JsonSerializer.Serialize(agent.Cells);
+            run.Rows.Add(row);
         }
 
         foreach (var held in result.Held)
@@ -207,6 +224,53 @@ public sealed class ConversionStore
         RequesterName = NullIfBlank(ready.RequesterName),
         LedgerJson = LedgerJson.Write(ready.Ledger)
     };
+
+    // An approved agent becomes a ready row of its own "Overseas agent" file; a rejected one is never created.
+    public async Task<bool> DecideAgentAsync(Guid runId, int rowId, bool approved, CancellationToken cancellationToken = default)
+    {
+        var row = await _db.RunRows.FirstOrDefaultAsync(
+            item => item.Id == rowId && item.RunId == runId && item.Template == RowTemplates.OverseasAgent
+                && item.ImportStatus == null
+                && (item.Status == RowStatuses.Approval || item.Status == RowStatuses.Ready || item.Status == RowStatuses.Rejected),
+            cancellationToken);
+        if (row is null)
+        {
+            return false;
+        }
+
+        var now = DateTime.UtcNow;
+        var when = IndiaDate(now);
+        row.Status = approved ? RowStatuses.Ready : RowStatuses.Rejected;
+        row.Reason = approved ? HoldReason.AgentApproved(when) : HoldReason.AgentRejected(when);
+        row.ApprovalDecidedAtUtc = now;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<byte[]?> GetApprovedAgentsFileAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.RunRows.AsNoTracking()
+            .Where(row => row.RunId == runId && row.Template == RowTemplates.OverseasAgent && row.Status == RowStatuses.Ready && row.CellsJson != null)
+            .OrderBy(row => row.SourceRowNumber)
+            .ToListAsync(cancellationToken);
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
+        var organisations = rows
+            .Select(row => new ReadyOrganisation(
+                row.SourceRowNumber,
+                MappingCatalog.OverseasTemplate,
+                row.OrganisationName,
+                row.BranchName ?? string.Empty,
+                row.City ?? string.Empty,
+                row.State ?? string.Empty,
+                row.Country ?? string.Empty,
+                JsonSerializer.Deserialize<Dictionary<string, string>>(row.CellsJson!)!))
+            .ToList();
+        return _writer.Write(_templates.Overseas, organisations);
+    }
 
     public async Task<bool> SetLedgerLinkedAsync(Guid runId, int rowId, bool linked, CancellationToken cancellationToken = default)
     {

@@ -76,6 +76,24 @@ public class NotificationTests
     }
 
     [Fact]
+    public void Overseas_agents_go_to_the_approver_in_one_email()
+    {
+        var draft = AgentApprovalComposer.Compose(
+        [
+            new AgentForApproval(7, "Bertschi Global AG", "Duerrenaesch", "Switzerland", "Type: Sub-Agent, Overseas Agent\nWCA ID: 12345", "riya@sar.com", "Riya"),
+            new AgentForApproval(8, "CreateART", "Melbourne", "Australia", "Type: Overseas Agent", "devesh@sar.com", "Devesh")
+        ], new EmailOptions { AgentApprover = "pankaj@tnpsfl.com", Signature = "Regards,\\nTeam" });
+
+        Assert.NotNull(draft);
+        Assert.Equal("pankaj@tnpsfl.com", draft.RecipientEmail);
+        Assert.Equal("Approval needed to create 2 overseas agents", draft.Subject);
+        Assert.Contains("1. Bertschi Global AG (Duerrenaesch, Switzerland)\n   Type: Sub-Agent, Overseas Agent\n   WCA ID: 12345\n", draft.Body);
+        Assert.Contains("2. CreateART (Melbourne, Australia)", draft.Body);
+        Assert.Equal([7, 8], draft.Organisations.Select(item => item.RowId).ToArray());
+        Assert.Null(AgentApprovalComposer.Compose([], new EmailOptions()));
+    }
+
+    [Fact]
     public void Ledger_request_lists_missing_documents_and_approvals_per_requestor()
     {
         Dictionary<string, string> Cells(params (string, string)[] values) =>

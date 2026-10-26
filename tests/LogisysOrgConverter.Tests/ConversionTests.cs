@@ -16,8 +16,9 @@ public class ConversionTests
         var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
 
         Assert.Equal(
-            ["Terra Granite", "CreateART", "SUSSMAN-AUTOMATIC CORPORATION", "FULLY ORGANIC LLC"],
+            ["Terra Granite", "SUSSMAN-AUTOMATIC CORPORATION", "FULLY ORGANIC LLC"],
             result.Overseas.Select(row => row.Name).ToArray());
+        Assert.Equal(["CreateART"], result.AwaitingApproval.Select(row => row.Name).ToArray());
         Assert.Equal(["LAVISH GLOBAL LOGISTICS INDIA PRIVATE LIMITED"], result.India.Select(row => row.Name).ToArray());
         Assert.Equal(["MAUSER USA LLC - MASON", "ZENAVIS LLC"], result.Held.Select(row => row.Name).ToArray());
 
@@ -33,7 +34,7 @@ public class ConversionTests
         Assert.False(terra.Cells.ContainsKey("IsAgent"));
         Assert.False(terra.Cells.ContainsKey("EMailID"));
 
-        var createArt = result.Overseas[1];
+        var createArt = result.AwaitingApproval[0];
         Assert.Equal("yes", createArt.Cells["IsAgent"]);
         Assert.Equal("Queensland (QLD)", createArt.Cells["State"]);
         Assert.Equal("Australia", createArt.Cells["Country"]);
@@ -41,9 +42,9 @@ public class ConversionTests
         Assert.Equal("georgina@createart.com.au", createArt.Cells["EMailID"]);
         Assert.False(createArt.Cells.ContainsKey("Notification Email"));
 
-        Assert.Equal("NY", result.Overseas[2].Cells["State"]);
-        Assert.Equal("FLORIDA", result.Overseas[3].Cells["State"]);
-        Assert.Equal("operation1@fullyorganicllc.com", result.Overseas[3].Cells["EMailID"]);
+        Assert.Equal("NY", result.Overseas[1].Cells["State"]);
+        Assert.Equal("FLORIDA", result.Overseas[2].Cells["State"]);
+        Assert.Equal("operation1@fullyorganicllc.com", result.Overseas[2].Cells["EMailID"]);
 
         var lavish = result.India[0];
         Assert.Equal("Sikar", lavish.BranchName);
@@ -78,11 +79,14 @@ public class ConversionTests
         Assert.Equal("Houston", Cell(overseas, 2, "BranchName"));
         Assert.Equal("yes", Cell(overseas, 2, "ISConsignee"));
         Assert.Equal(string.Empty, Cell(overseas, 2, "EMailID"));
-        Assert.Equal("georgina@createart.com.au", Cell(overseas, 3, "EMailID"));
         Assert.Equal(string.Empty, Cell(overseas, 3, "Notification Email"));
         Assert.Equal(string.Empty, Cell(india, 2, "Notification Email"));
-        Assert.Equal("FULLY ORGANIC LLC", Cell(overseas, 5, "Name"));
-        Assert.Equal(4, Names(overseas).Count(name => name.Length > 0));
+        Assert.Equal("FULLY ORGANIC LLC", Cell(overseas, 4, "Name"));
+        Assert.Equal(3, Names(overseas).Count(name => name.Length > 0));
+
+        var agents = Open(writer.Write(OverseasTemplate, result.AwaitingApproval));
+        Assert.Equal("CreateART", Cell(agents, 2, "Name"));
+        Assert.Equal("georgina@createart.com.au", Cell(agents, 2, "EMailID"));
     }
 
     [Fact]
@@ -134,7 +138,10 @@ public class ConversionTests
                 "METACHEM MANUFACTURING COMPANY PRIVATE LIMITED", "PRET MODE"
             ],
             result.India.Select(row => row.Name).ToArray());
-        Assert.Equal(11, result.Overseas.Count);
+        Assert.Equal(10, result.Overseas.Count);
+        var blueShipping = Assert.Single(result.AwaitingApproval);
+        Assert.Equal("SARL BLUE SHIPPING SERVICES", blueShipping.Name);
+        Assert.Contains("Type: Overseas Agent", blueShipping.Note);
 
         var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM"));
         Assert.Equal("PUNE", metachem.BranchName);
@@ -182,7 +189,7 @@ public class ConversionTests
         Assert.False(milsped.Cells.ContainsKey("State"));
         Assert.Equal(("ROMA", "Italy"), (result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).City, result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).Country));
         Assert.Equal("FROSINONE", result.Overseas.Single(row => row.Name.StartsWith("KLOPMAN")).City);
-        Assert.Equal("Algeria", result.Overseas.Single(row => row.Name.StartsWith("SARL BLUE")).Country);
+        Assert.Equal("Algeria", result.AwaitingApproval.Single(row => row.Name.StartsWith("SARL BLUE")).Country);
     }
 
     [Fact]

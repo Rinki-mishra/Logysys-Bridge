@@ -69,6 +69,9 @@ public sealed class ConversionResult
     public List<MergedOrganisation> Merged { get; } = [];
 
     public List<AddressUpdate> Updates { get; } = [];
+
+    // Overseas agents are only created after approval, so they are kept out of the overseas file.
+    public List<ReadyOrganisation> AwaitingApproval { get; } = [];
 }
 
 public sealed class OrganisationConverter
@@ -248,6 +251,10 @@ public sealed class OrganisationConverter
             if (template == MappingCatalog.IndiaTemplate)
             {
                 result.India.Add(ready);
+            }
+            else if (ReadFlags(Value(row, "X")).Contains("Agent"))
+            {
+                result.AwaitingApproval.Add(ready with { Note = AgentApprovalDetails(row, note) });
             }
             else
             {
@@ -617,6 +624,33 @@ public sealed class OrganisationConverter
         }
 
         return row with { Cells = cells };
+    }
+
+    // What the approver needs to decide, one fact per line.
+    private static string AgentApprovalDetails(ClientRow row, string? note)
+    {
+        var lines = new List<string>
+        {
+            $"Type: {Value(row, "X")}",
+            $"Address: {string.Join(", ", new[] { "Y", "Z", "AA", "AB", "AC", "AE", "AD" }.Select(column => Value(row, column)).Where(HasText))}"
+        };
+        AddLine(lines, "Contact email", Value(row, "AG"));
+        AddLine(lines, "Telephone", Value(row, "AF"));
+        AddLine(lines, "Network / event", Value(row, "L"));
+        AddLine(lines, "WCA ID", Value(row, "BC"));
+        AddLine(lines, "Agency agreement", Value(row, "M"));
+        AddLine(lines, "Sales person", Value(row, "V"));
+        AddLine(lines, "Requested by", string.Join(" ", new[] { Value(row, "D"), Value(row, "B") }.Where(HasText)));
+        AddLine(lines, "Note", note ?? string.Empty);
+        return string.Join("\n", lines);
+
+        static void AddLine(List<string> lines, string label, string value)
+        {
+            if (HasText(value))
+            {
+                lines.Add($"{label}: {value}");
+            }
+        }
     }
 
     private static ClientRow UseGstinFromCertificate(

@@ -12,7 +12,11 @@
         .Where(item => item.Checklist is not null)
         .Select(item => (item.Row, Checklist: item.Checklist!))
         .ToList();
-    var templates = new[] { ("India", run.IndiaCount), ("Overseas", run.OverseasCount) }.Where(item => item.Item2 > 0).ToList();
+    var agents = run.Rows.Where(row => row.Template == RowTemplates.OverseasAgent).ToList();
+    var waitingAgents = agents.Count(row => row.Status == RowStatuses.Approval);
+    var approvedAgents = agents.Count(row => row.Status == RowStatuses.Ready);
+    var templates = new[] { (RowTemplates.India, run.IndiaCount), (RowTemplates.Overseas, run.OverseasCount), (RowTemplates.OverseasAgent, approvedAgents) }
+        .Where(item => item.Item2 > 0).ToList();
 }
 
 <section class="panel">
@@ -24,6 +28,9 @@
         }@if (updateCount > 0)
         {
             <text> @updateCount @(updateCount == 1 ? "organisation is" : "organisations are") already in Logi-Sys and will not be created again; apply the new address from the address updates file.</text>
+        }@if (waitingAgents > 0)
+        {
+            <text> @waitingAgents overseas @(waitingAgents == 1 ? "agent waits" : "agents wait") for approval from @Model.AgentApprover before being created.</text>
         }</p>
 
     @if (!string.IsNullOrEmpty(Model.Message))
@@ -48,6 +55,10 @@
         {
             <span class="button disabled">No overseas rows</span>
         }
+        @if (approvedAgents > 0)
+        {
+            <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="agents">Download approved agents file</a>
+        }
         @if (run.UpdatesFile is { Length: > 0 })
         {
             <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="updates">Download address updates</a>
@@ -55,6 +66,69 @@
         <a class="text-link" asp-page="/Index">Convert another sheet</a>
     </div>
 </section>
+
+@if (agents.Count > 0)
+{
+    <section class="panel step" id="agents">
+        <p class="eyebrow">Overseas agents</p>
+        <h2>Approval from @Model.AgentApprover: @agents.Count @(agents.Count == 1 ? "agent" : "agents")</h2>
+        <p class="lead">
+            Overseas agents are not put in the overseas file. Send them to @Model.AgentApprover for approval, then mark each one.
+            Approved agents go into a separate approved agents file to import; agents not approved are never created.
+        </p>
+        @if (Model.ApprovalDraft is { } approval)
+        {
+            <details class="draft">
+                <summary><strong>@approval.RecipientEmail</strong> <span>@approval.Subject</span></summary>
+                <pre>@approval.Body</pre>
+            </details>
+            <form method="post" asp-page-handler="SendApproval" asp-route-id="@run.Id" class="send-form">
+                <button type="submit">@(Model.UsesSmtp ? $"Send approval request to {Model.AgentApprover}" : "Save approval request as a file")</button>
+            </form>
+        }
+        @foreach (var agent in agents)
+        {
+            var state = agent.Status switch
+            {
+                RowStatuses.Approval => agent.ApprovalRequestedAtUtc is DateTime asked
+                    ? $"Waiting for approval, asked {DetailModel.IndiaTime(asked):d MMM, HH:mm} IST"
+                    : "Waiting for approval, not sent yet",
+                RowStatuses.Ready => $"Approved · {agent.ImportStatus ?? "not imported yet"}",
+                _ => "Not approved"
+            };
+            <details class="ledger-card @(agent.Status == RowStatuses.Ready ? "done" : agent.Status == RowStatuses.Rejected ? "missing" : "open")">
+                <summary>
+                    <strong>@agent.OrganisationName</strong>
+                    <span class="ledger-meta">Row @agent.SourceRowNumber · @agent.Country</span>
+                    <span class="ledger-state">@state</span>
+                </summary>
+                @if (!string.IsNullOrWhiteSpace(agent.ApprovalDetails))
+                {
+                    <ul class="ledger-items">
+                        @foreach (var line in agent.ApprovalDetails.Split('\n'))
+                        {
+                            <li><span>@line</span></li>
+                        }
+                    </ul>
+                }
+                @if (agent.ImportStatus is null)
+                {
+                    <form method="post" asp-page-handler="Agent" asp-route-id="@run.Id" class="mark-form">
+                        <input type="hidden" name="rowId" value="@agent.Id" />
+                        @if (agent.Status != RowStatuses.Ready)
+                        {
+                            <button type="submit" name="approved" value="true" class="small">Mark approved</button>
+                        }
+                        @if (agent.Status != RowStatuses.Rejected)
+                        {
+                            <button type="submit" name="approved" value="false" class="small ghost">Mark not approved</button>
+                        }
+                    </form>
+                }
+            </details>
+        }
+    </section>
+}
 
 @if (templates.Count > 0)
 {
@@ -217,7 +291,7 @@
         <tbody>
             @foreach (var row in run.Rows)
             {
-                <tr class="@(row.Status is RowStatuses.Merged or RowStatuses.Update ? "merged" : row.Status == RowStatuses.Held ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
+                <tr class="@(row.Status is RowStatuses.Merged or RowStatuses.Update or RowStatuses.Approval ? "merged" : row.Status is RowStatuses.Held or RowStatuses.Rejected ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
                     <td>@row.SourceRowNumber</td>
                     <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
                     <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
@@ -228,7 +302,13 @@
                         <span>@(row.RequesterEmail ?? "No email in column B")</span>
                     </td>
                     <td>
-                        <strong>@(row.Status == RowStatuses.Update ? "Address update" : row.Status)</strong>
+                        <strong>@(row.Status switch
+                        {
+                            RowStatuses.Update => "Address update",
+                            RowStatuses.Approval => "Waiting for approval",
+                            RowStatuses.Rejected => "Not approved",
+                            _ => row.Status
+                        })</strong>
                         @if (!string.IsNullOrWhiteSpace(row.Reason))
                         {
                             <span>@row.Reason</span>

@@ -51,6 +51,15 @@ public static class HoldReason
     public static string GstinStateMismatch(string gstin, string state) =>
         $"GSTIN \"{gstin}\" does not match the GST state code for {state}.";
 
+    public static string AgentNeedsApproval(string approver) =>
+        $"Overseas agent: not created until {approver} approves it.";
+
+    public static string AgentApproved(string when) =>
+        $"Overseas agent approved {when}. It is in the approved agents file, not the overseas file.";
+
+    public static string AgentRejected(string when) =>
+        $"Overseas agent not approved ({when}), so it will not be created.";
+
     public static string GstinFromCertificate(string gstin) =>
         $"GSTIN {gstin} was read from the GST certificate (the form had no GST number).";
 

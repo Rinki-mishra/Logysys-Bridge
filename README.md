@@ -38,6 +38,16 @@ dotnet test
 
 Upload each downloaded file in Logi-Sys under Directories → Organisations → Import.
 
+## Overseas agents need approval
+
+An overseas organisation whose type includes Agent (Overseas Agent, Sub-Agent) is not put in the overseas file. On the run page, under **Overseas agents**:
+
+1. **Send approval request** emails `Email:AgentApprover` (pankaj@tnpsfl.com) once, listing every waiting agent with its type, address, contact, WCA ID, agency agreement and requestor.
+2. When the reply comes, click **Mark approved** or **Mark not approved** on each agent.
+3. Approved agents are in **Download approved agents file** (overseas template). Import it in Logi-Sys and record the result on the **Overseas agent file** card; the requestor is then emailed like any other created organisation. Agents not approved are never created.
+
+Held rows stay held; an agent is only sent for approval once its data passes the usual checks.
+
 ## Ledger link
 
 Organisations with column I ("to be invoiced") = Yes get a ledger-link checklist on the run page, following "Document required during Ledger link – Logisys":
