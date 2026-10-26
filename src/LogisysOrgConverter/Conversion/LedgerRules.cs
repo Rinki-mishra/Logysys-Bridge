@@ -60,7 +60,6 @@ public static class LedgerRules
         var receivable = types.Contains("Shipper") || types.Contains("Consignee");
         var agent = types.Contains("Agent");
         var payable = types.Contains("Carrier") || types.Contains("Service");
-        var transport = types.Contains("Transport");
         var sections = new List<LedgerSection>();
 
         if (string.IsNullOrWhiteSpace(country))
@@ -70,21 +69,7 @@ public static class LedgerRules
 
         if (country == MappingCatalog.IndiaCountry)
         {
-            if (receivable)
-            {
-                sections.Add(IndiaReceivable(cells));
-            }
-
-            if (agent || payable)
-            {
-                sections.Add(IndiaPayable(cells));
-            }
-
-            if (transport)
-            {
-                sections.Add(Transport(cells));
-            }
-
+            sections.Add(IndiaMandatory(cells));
             return new LedgerChecklist("India", sections);
         }
 
@@ -162,51 +147,38 @@ public static class LedgerRules
         return new LedgerChecklist("Overseas", sections);
     }
 
-    private static LedgerSection IndiaReceivable(IReadOnlyDictionary<string, string> cells)
-    {
-        var tan = Number(cells, "TAN", "AU", "BF", required: true, Tan);
-        var notes = new List<string>();
-        if (tan.State == LedgerItemStates.Missing)
-        {
-            notes.Add("No TAN: ask for the TDS challan. A TAN shown on the COI is accepted; a TAN only in the KYC is not.");
-            notes.Add("If there is no TAN, ask whether the customer will deduct TDS. If not, the ledger can be linked. If yes, take approval from Pramith sir / Accounts team.");
-        }
-
-        return new LedgerSection(
-            "India receivable – shipper, consignee",
-            [
-                Kyc(cells),
-                Number(cells, "PAN", "AM", "AN", required: true, Pan),
-                tan,
-                Number(cells, "GST", "AO", "AP", required: true, Gstin),
-                Number(cells, "IEC", "AQ", null, required: false),
-                new("COI (certificate of incorporation)", LedgerItemStates.Collect,
-                    Has(cells, "BE") ? "CIN given in the form: " + Get(cells, "BE") : null)
-            ],
-            notes);
-    }
-
-    private static LedgerSection IndiaPayable(IReadOnlyDictionary<string, string> cells) =>
+    // For India only these three are mandatory, for every organisation type; each counts as
+    // received only when its document is attached. Every other document is ignored.
+    private static LedgerSection IndiaMandatory(IReadOnlyDictionary<string, string> cells) =>
         new(
-            "India payable – agent, carrier, service",
+            "India – PAN, TAN and GST",
             [
-                Number(cells, "GST", "AO", "AP", required: true, Gstin),
-                Number(cells, "PAN", "AM", "AN", required: true, Pan),
-                new("MSME certificate", LedgerItemStates.Collect)
-            ],
-            ["If there is no MSME certificate, ask for a non-MSME declaration."]);
-
-    private static LedgerSection Transport(IReadOnlyDictionary<string, string> cells) =>
-        new(
-            "Commission person / transport",
-            [
-                new("Aadhaar", LedgerItemStates.Optional),
-                Number(cells, "PAN", "AM", "AN", required: true, Pan),
-                new("Cancelled cheque", LedgerItemStates.Collect),
-                Number(cells, "GST (if available)", "AO", "AP", required: false, Gstin),
-                new("MSME (if available)", LedgerItemStates.Optional)
+                MandatoryDocument(cells, "PAN", "AM", "AN", Pan),
+                MandatoryDocument(cells, "TAN", "AU", "BF", Tan),
+                MandatoryDocument(cells, "GST", "AO", "AP", Gstin)
             ],
             []);
+
+    private static LedgerItem MandatoryDocument(
+        IReadOnlyDictionary<string, string> cells,
+        string label,
+        string numberColumn,
+        string documentColumn,
+        Regex pattern)
+    {
+        var raw = Get(cells, numberColumn);
+        var number = raw.Replace(" ", string.Empty).ToUpperInvariant();
+        var numberOk = pattern.IsMatch(number);
+
+        if (Has(cells, documentColumn))
+        {
+            return new LedgerItem($"{label} document", LedgerItemStates.Provided, numberOk ? number : "Attached");
+        }
+
+        return new LedgerItem($"{label} document", LedgerItemStates.Missing, numberOk
+            ? $"{label} number {number} given, but the document is not attached"
+            : "not attached");
+    }
 
     private static LedgerSection OverseasAgent(IReadOnlyDictionary<string, string> cells) =>
         new(

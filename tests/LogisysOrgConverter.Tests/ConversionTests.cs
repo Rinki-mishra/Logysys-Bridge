@@ -296,14 +296,18 @@ public class ConversionTests
 
         var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM")).Ledger!;
         Assert.Equal("India", metachem.Category);
-        Assert.Equal(["India receivable – shipper, consignee", "India payable – agent, carrier, service"], metachem.Sections.Select(section => section.Title).ToArray());
+        var section = Assert.Single(metachem.Sections);
+        Assert.Equal("India – PAN, TAN and GST", section.Title);
+        Assert.Equal(["PAN document", "TAN document", "GST document"], section.Items.Select(item => item.Label).ToArray());
         Assert.Equal(0, metachem.MissingCount);
-        Assert.Equal(LedgerItemStates.Provided, metachem.Sections[0].Items.Single(item => item.Label == "TAN").State);
+        Assert.Equal("Ready for ledger link.", metachem.Summary);
 
         var neoPoly = result.India.Single(row => row.Name.StartsWith("NEO POLY")).Ledger!;
-        Assert.Equal(LedgerItemStates.Missing, neoPoly.Sections[0].Items.Single(item => item.Label == "TAN").State);
-        Assert.Contains(neoPoly.Sections[0].Notes, note => note.Contains("TDS challan"));
-        Assert.Equal("1 required document is missing.", neoPoly.Summary);
+        Assert.Equal(LedgerItemStates.Missing, neoPoly.Sections[0].Items.Single(item => item.Label == "TAN document").State);
+        Assert.Equal("3 required documents are missing.", neoPoly.Summary);
+
+        var pret = result.India.Single(row => row.Name.StartsWith("PRET MODE")).Ledger!;
+        Assert.Equal(["TAN document"], pret.Sections[0].Items.Where(item => item.State == LedgerItemStates.Missing).Select(item => item.Label).ToArray());
 
         Assert.Equal(LedgerChecklist.UnknownCountry, result.Held.Single(row => row.Name.StartsWith("SEROJET")).Ledger!.Category);
     }

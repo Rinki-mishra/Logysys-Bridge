@@ -42,7 +42,7 @@ Upload each downloaded file in Logi-Sys under Directories → Organisations → 
 
 Organisations with column I ("to be invoiced") = Yes get a ledger-link checklist on the run page, following "Document required during Ledger link – Logisys":
 
-- **India**: shipper/consignee → receivable (KYC on letterhead, PAN, TAN, GST mandatory; IEC; COI). Agent/carrier/service → payable (GST, PAN, MSME or non-MSME declaration). Transport/commission → Aadhaar, PAN, cancelled cheque, GST/MSME.
+- **India**: for every organisation type only the PAN, TAN and GST documents are mandatory (form columns AN, BF and AP). A typed number without its document still counts as missing. All other documents are ignored for India.
 - **Overseas**: shipper/consignee → receivable (direct billing and credit approval, credit form, tax certificate, W9 for the USA, approval from JP sir with reporting manager). Agent → approval from Shivangi (sea) / Aditya (air), WCA ID, agency agreement. Carrier/service → payable (Form 41, formerly 10F, or agency agreement; TRC or agency agreement).
 - **Dubai**: agent as overseas agent; others VAT and trade licence, or agency agreement.
 - **Nepal**: KYC in SAR format, PAN; mark OVR RECEIVABLE.

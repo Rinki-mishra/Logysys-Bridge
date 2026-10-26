@@ -81,9 +81,11 @@ public class NotificationTests
         Dictionary<string, string> Cells(params (string, string)[] values) =>
             values.ToDictionary(value => value.Item1, value => value.Item2, StringComparer.OrdinalIgnoreCase);
         var neoPoly = LedgerRules.Build(
-            Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AO", "27AAHCN2196G1Z9")),
+            Cells(("I", "Yes"), ("X", "Shipper"), ("AM", "AAHCN2196G"), ("AN", "https://drive/pan"), ("AO", "27AAHCN2196G1Z9")),
             "India");
-        var complete = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Notify Party")), "India");
+        var complete = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Carrier"), ("AN", "https://drive/pan"), ("BF", "https://drive/tan"), ("AP", "https://drive/gst")),
+            "India");
         var agent = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Overseas Agent")), "Germany");
 
         var drafts = LedgerRequestComposer.Compose(
@@ -97,10 +99,13 @@ public class NotificationTests
         var riya = drafts.Single(draft => draft.RecipientEmail == "riya@sar.com");
         Assert.Equal("Documents needed for ledger link: NEO POLY INDUSTRIES PRIVATE LIMITED", riya.Subject);
         Assert.Equal([1], riya.Organisations.Select(item => item.RowId).ToArray());
-        Assert.Contains("  - TAN\n", riya.Body);
-        Assert.Contains("  - COI (certificate of incorporation)", riya.Body);
-        Assert.Contains("TDS challan", riya.Body);
+        Assert.Contains("  - TAN document (not attached)\n", riya.Body);
+        Assert.Contains("  - GST document (GST number 27AAHCN2196G1Z9 given, but the document is not attached)\n", riya.Body);
         Assert.DoesNotContain("  - PAN", riya.Body);
+        Assert.DoesNotContain("KYC", riya.Body);
+        Assert.DoesNotContain("COI", riya.Body);
+        Assert.DoesNotContain("IEC", riya.Body);
+        Assert.DoesNotContain("MSME", riya.Body);
 
         var devesh = drafts.Single(draft => draft.RecipientEmail == "devesh@sar.com");
         Assert.Contains("Approvals:\n  - Approval to create the organisation and mark the ledger: Shivangi (sea) / Aditya (air)", devesh.Body);
