@@ -104,9 +104,43 @@ public sealed class NotificationStore
             .OrderByDescending(item => item.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
-    public async Task<SendSummary> SendAsync(Guid runId, CancellationToken cancellationToken = default)
+    public async Task<SendSummary> SendAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        await SendDraftsAsync(runId, await GetDraftsAsync(runId, cancellationToken), (row, now) => row.EmailedAtUtc = now, cancellationToken);
+
+    public async Task<IReadOnlyList<EmailDraft>> GetLedgerDraftsAsync(Guid runId, CancellationToken cancellationToken = default)
     {
-        var drafts = await GetDraftsAsync(runId, cancellationToken);
+        var rows = await _db.RunRows.AsNoTracking()
+            .Where(row => row.RunId == runId
+                && row.LedgerJson != null
+                && row.LedgerLinkedAtUtc == null
+                && row.LedgerRequestedAtUtc == null
+                && row.RequesterEmail != null
+                && row.Status != RowStatuses.Merged)
+            .ToListAsync(cancellationToken);
+
+        return LedgerRequestComposer.Compose(
+            rows
+                .Select(row => (Row: row, Checklist: LedgerJson.Read(row.LedgerJson)))
+                .Where(item => item.Checklist is not null)
+                .Select(item => new LedgerRequestOrganisation(
+                    item.Row.Id,
+                    item.Row.OrganisationName,
+                    item.Row.Country,
+                    item.Row.RequesterEmail!,
+                    item.Row.RequesterName,
+                    item.Checklist!)),
+            _options);
+    }
+
+    public async Task<SendSummary> SendLedgerRequestsAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        await SendDraftsAsync(runId, await GetLedgerDraftsAsync(runId, cancellationToken), (row, now) => row.LedgerRequestedAtUtc = now, cancellationToken);
+
+    private async Task<SendSummary> SendDraftsAsync(
+        Guid runId,
+        IReadOnlyList<EmailDraft> drafts,
+        Action<ConversionRunRow, DateTime> markSent,
+        CancellationToken cancellationToken)
+    {
         var sent = 0;
         var failed = 0;
         var delivery = _delivery.UsesSmtp ? "SMTP" : "File";
@@ -136,7 +170,7 @@ public sealed class NotificationStore
                 var rows = await _db.RunRows.Where(row => ids.Contains(row.Id)).ToListAsync(cancellationToken);
                 foreach (var row in rows)
                 {
-                    row.EmailedAtUtc = now;
+                    markSent(row, now);
                 }
 
                 sent++;

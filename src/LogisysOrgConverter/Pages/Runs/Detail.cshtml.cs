@@ -24,6 +24,8 @@ public class DetailModel : PageModel
 
     public IReadOnlyList<EmailNotification> Sent { get; private set; } = [];
 
+    public IReadOnlyList<EmailDraft> LedgerDrafts { get; private set; } = [];
+
     public IReadOnlyDictionary<int, string> PendingElsewhere { get; private set; } = new Dictionary<int, string>();
 
     public bool UsesSmtp => _delivery.UsesSmtp;
@@ -43,6 +45,7 @@ public class DetailModel : PageModel
 
         Drafts = await _notifications.GetDraftsAsync(id, cancellationToken);
         Sent = await _notifications.GetNotificationsAsync(id, cancellationToken);
+        LedgerDrafts = await _notifications.GetLedgerDraftsAsync(id, cancellationToken);
         PendingElsewhere = await _store.GetPendingElsewhereAsync(id, cancellationToken);
         return Page();
     }
@@ -92,6 +95,16 @@ public class DetailModel : PageModel
             ? $"{summary.Sent} email(s) {verb}."
             : $"{summary.Sent} email(s) {verb}. {summary.Failed} failed; see the email history below.";
         return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostSendLedgerAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var summary = await _notifications.SendLedgerRequestsAsync(id, cancellationToken);
+        var verb = summary.Delivery == "SMTP" ? "sent" : "saved to the outgoing mail folder";
+        Message = summary.Failed == 0
+            ? $"{summary.Sent} document request email(s) {verb}."
+            : $"{summary.Sent} document request email(s) {verb}. {summary.Failed} failed; see the email history below.";
+        return RedirectToPage(null, null, new { id }, "ledger");
     }
 
     public async Task<IActionResult> OnPostLedgerAsync(Guid id, int rowId, bool linked, CancellationToken cancellationToken)

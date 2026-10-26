@@ -74,4 +74,37 @@ public class NotificationTests
         Assert.StartsWith("Dear Sir/Madam,", single.Body);
         Assert.Contains("Branch: Eumundi", single.Body);
     }
+
+    [Fact]
+    public void Ledger_request_lists_missing_documents_and_approvals_per_requestor()
+    {
+        Dictionary<string, string> Cells(params (string, string)[] values) =>
+            values.ToDictionary(value => value.Item1, value => value.Item2, StringComparer.OrdinalIgnoreCase);
+        var neoPoly = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AO", "27AAHCN2196G1Z9")),
+            "India");
+        var complete = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Notify Party")), "India");
+        var agent = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Overseas Agent")), "Germany");
+
+        var drafts = LedgerRequestComposer.Compose(
+        [
+            new LedgerRequestOrganisation(1, "NEO POLY INDUSTRIES PRIVATE LIMITED", "India", "riya@sar.com", "Riya", neoPoly),
+            new LedgerRequestOrganisation(2, "Notify Only", "India", "riya@sar.com", "Riya", complete),
+            new LedgerRequestOrganisation(3, "Euro Agent GmbH", "Germany", "devesh@sar.com", "Devesh", agent)
+        ], new EmailOptions { Signature = "Regards,\\nTeam" });
+
+        Assert.Equal(2, drafts.Count);
+        var riya = drafts.Single(draft => draft.RecipientEmail == "riya@sar.com");
+        Assert.Equal("Documents needed for ledger link: NEO POLY INDUSTRIES PRIVATE LIMITED", riya.Subject);
+        Assert.Equal([1], riya.Organisations.Select(item => item.RowId).ToArray());
+        Assert.Contains("  - TAN\n", riya.Body);
+        Assert.Contains("  - COI (certificate of incorporation)", riya.Body);
+        Assert.Contains("TDS challan", riya.Body);
+        Assert.DoesNotContain("  - PAN", riya.Body);
+
+        var devesh = drafts.Single(draft => draft.RecipientEmail == "devesh@sar.com");
+        Assert.Contains("Approvals:\n  - Approval to create the organisation and mark the ledger: Shivangi (sea) / Aditya (air)", devesh.Body);
+        Assert.Contains("  - WCA ID", devesh.Body);
+        Assert.Contains("  - Agency agreement", devesh.Body);
+    }
 }

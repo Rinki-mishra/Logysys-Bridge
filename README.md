@@ -49,6 +49,8 @@ Organisations with column I ("to be invoiced") = Yes get a ledger-link checklist
 
 Documents given in the form (KYC, PAN, TAN, GST, IEC, WCA, agency agreement) are checked; the rest are listed to collect, with the approvals. **Download ledger checklist** gives the same as a sheet, and **Mark ledger linked** records when it is done.
 
+**Send document requests** emails each requestor (column B) once, listing per organisation the documents still needed (missing from the form, or not asked in it), the approvals, and the notes (TAN/TDS, non-MSME declaration). Organisations already ledger linked or already asked are skipped.
+
 ## Emailing the requestor
 
 After the import, open the run page again.

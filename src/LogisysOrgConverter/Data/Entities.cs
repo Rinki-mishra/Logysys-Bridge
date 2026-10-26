@@ -107,6 +107,8 @@ public sealed class ConversionRunRow
     public string? LedgerJson { get; set; }
 
     public DateTime? LedgerLinkedAtUtc { get; set; }
+
+    public DateTime? LedgerRequestedAtUtc { get; set; }
 }
 
 public sealed class ExistingOrganisation

@@ -128,6 +128,25 @@
         <div class="actions">
             <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="LedgerFile">Download ledger checklist</a>
         </div>
+        @if (Model.LedgerDrafts.Count > 0)
+        {
+            <h3>@Model.LedgerDrafts.Count document request @(Model.LedgerDrafts.Count == 1 ? "email is" : "emails are") ready</h3>
+            <p class="lead">
+                Each requestor gets one email listing the documents and approvals still needed for their organisations.
+                @(Model.UsesSmtp ? "They go out through your SMTP mailbox." : $"SMTP is not set up yet, so they are saved as .eml files in {Model.PickupFolder}.")
+                An organisation is asked only once.
+            </p>
+            @foreach (var draft in Model.LedgerDrafts)
+            {
+                <details class="draft">
+                    <summary><strong>@draft.RecipientEmail</strong> <span>@draft.Subject</span></summary>
+                    <pre>@draft.Body</pre>
+                </details>
+            }
+            <form method="post" asp-page-handler="SendLedger" asp-route-id="@run.Id" class="send-form">
+                <button type="submit">@(Model.UsesSmtp ? "Send document requests" : "Save document requests as files")</button>
+            </form>
+        }
         @foreach (var (row, checklist) in ledgerRows)
         {
             <details class="ledger-card @(row.LedgerLinkedAtUtc is not null ? "done" : checklist.MissingCount > 0 ? "missing" : "open")">
@@ -138,6 +157,10 @@
                         @(row.LedgerLinkedAtUtc is DateTime linkedAt
                             ? $"Ledger linked {DetailModel.IndiaTime(linkedAt):d MMM, HH:mm} IST"
                             : checklist.Summary)
+                        @if (row.LedgerLinkedAtUtc is null && row.LedgerRequestedAtUtc is DateTime requestedAt)
+                        {
+                            <text> Documents requested @DetailModel.IndiaTime(requestedAt).ToString("d MMM, HH:mm") IST.</text>
+                        }
                     </span>
                 </summary>
                 @if (checklist.Sections.Count == 0)
