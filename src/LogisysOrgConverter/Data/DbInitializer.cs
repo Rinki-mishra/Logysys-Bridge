@@ -25,15 +25,18 @@ public static class DbInitializer
             }));
         }
 
-        if (!await db.CountryAliases.AnyAsync(cancellationToken))
-        {
-            db.CountryAliases.AddRange(MappingSeed.Countries.Select(country => new CountryAlias
+        // Countries added to the seed later are filled in; spellings already saved (and renamed) are left alone.
+        var savedKeys = (await db.CountryAliases.Select(item => item.AliasKey).ToListAsync(cancellationToken))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        db.CountryAliases.AddRange(MappingSeed.Countries
+            .Select(country => (country, Key: MappingSeed.NormalizeAlias(country.Alias)))
+            .Where(item => savedKeys.Add(item.Key))
+            .Select(item => new CountryAlias
             {
-                Alias = country.Alias,
-                AliasKey = MappingSeed.NormalizeAlias(country.Alias),
-                CanonicalName = country.CanonicalName
+                Alias = item.country.Alias,
+                AliasKey = item.Key,
+                CanonicalName = item.country.CanonicalName
             }));
-        }
 
         if (!await db.KnownStates.AnyAsync(cancellationToken))
         {

@@ -2,6 +2,29 @@ namespace LogisysOrgConverter.Conversion;
 
 public static class MappingSeed
 {
+    private static readonly string[] OtherCountries =
+    [
+        "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia",
+        "Austria", "Azerbaijan", "Bahamas", "Barbados", "Belarus", "Belize", "Benin", "Bhutan", "Bolivia",
+        "Botswana", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cambodia", "Cameroon", "Cape Verde",
+        "Central African Republic", "Chad", "Chile", "Colombia", "Comoros", "Congo", "Democratic Republic of the Congo",
+        "Costa Rica", "Croatia", "Cuba", "Cyprus", "Denmark", "Djibouti", "Dominica", "Dominican Republic",
+        "Ecuador", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji",
+        "Finland", "Gabon", "Gambia", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau",
+        "Guyana", "Haiti", "Honduras", "Hungary", "Iceland", "Iran", "Iraq", "Ireland", "Israel", "Jamaica",
+        "Jordan", "Kazakhstan", "Kiribati", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia",
+        "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Macau", "Madagascar", "Malawi", "Maldives", "Mali",
+        "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Micronesia", "Moldova", "Monaco", "Mongolia",
+        "Montenegro", "Morocco", "Mozambique", "Namibia", "Nauru", "Nicaragua", "Niger", "North Korea", "Norway",
+        "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Poland", "Portugal",
+        "Puerto Rico", "Romania", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines",
+        "Samoa", "San Marino", "Sao Tome and Principe", "Senegal", "Serbia", "Seychelles", "Sierra Leone",
+        "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Sudan", "Sudan", "Suriname", "Sweden",
+        "Switzerland", "Syria", "Tajikistan", "Tanzania", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago",
+        "Tunisia", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela",
+        "Yemen", "Zambia", "Zimbabwe"
+    ];
+
     public static IReadOnlyList<FieldMapRule> FieldMaps { get; } = BuildFieldMaps();
 
     public static IReadOnlyList<CountryAliasRule> Countries { get; } = BuildCountries();
@@ -108,6 +131,20 @@ public static class MappingSeed
         Add(rules, "Egypt", "Egypt");
         Add(rules, "Turkey", "Turkey", "Türkiye");
         Add(rules, "Philippines", "Philippines");
+        Add(rules, "Russia", "Russia", "Russian Federation");
+        Add(rules, "Czech Republic", "Czech Republic", "Czechia");
+        Add(rules, "Cote d'Ivoire", "Cote d'Ivoire", "Ivory Coast");
+        Add(rules, "Myanmar", "Myanmar", "Burma");
+        Add(rules, "Bosnia and Herzegovina", "Bosnia and Herzegovina", "Bosnia");
+        Add(rules, "North Macedonia", "North Macedonia", "Macedonia");
+        Add(rules, "Taiwan", "Taiwan", "Republic of China");
+
+        var listed = new HashSet<string>(rules.Select(rule => rule.CanonicalName), StringComparer.OrdinalIgnoreCase);
+        foreach (var country in OtherCountries.Where(country => !listed.Contains(country)))
+        {
+            Add(rules, country, country);
+        }
+
         return rules;
     }
 

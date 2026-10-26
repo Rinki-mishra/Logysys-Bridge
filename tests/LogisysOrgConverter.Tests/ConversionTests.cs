@@ -127,13 +127,14 @@ public class ConversionTests
 
         Assert.Equal(
             [
-                "ESTEEM INDUSTRIES PVT.LTD.", "S D BAKHAI & CO", "VISNUKUMAR TRADERS PVT LTD",
+                "ESTEEM INDUSTRIES PVT.LTD.", "S D BAKHAI & CO", "TRIDENT LIMITED", "SUN NUTRAFOODS",
+                "VARDHMAN TEXTILES LIMITED", "VISNUKUMAR TRADERS PVT LTD",
                 "PETROCHEM CORPORATION", "PLASTECH", "NEO POLY INDUSTRIES PRIVATE LIMITED",
                 "NAVRATAN SPECIALTY CHEMICALS LLP", "Mantram TechnoFab Pvt. Ltd.",
                 "METACHEM MANUFACTURING COMPANY PRIVATE LIMITED", "PRET MODE"
             ],
             result.India.Select(row => row.Name).ToArray());
-        Assert.Equal(6, result.Overseas.Count);
+        Assert.Equal(11, result.Overseas.Count);
 
         var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM"));
         Assert.Equal("PUNE", metachem.BranchName);
@@ -167,7 +168,40 @@ public class ConversionTests
         Assert.Contains(result.Held, row => row.Name == "LILARAM GOBINDRAM" && row.Reason.Contains("GSTIN"));
         Assert.Contains(result.Held, row => row.Name == "JTL INDUSTRIES LTD" && row.Reason.Contains("PAN"));
         Assert.Contains(result.Held, row => row.Name == "SEROJET FREIGHT (I) PRIVATE LIMITED" && row.Reason.Contains("GUJARAT"));
-        Assert.Contains(result.Held, row => row.Name == "TRIDENT LIMITED");
+        Assert.Contains(result.Held, row => row.Name == "STROLIT D.O.O." && row.Reason.Contains("another country"));
+
+        var vardhman = result.India.Single(row => row.Name == "VARDHMAN TEXTILES LIMITED");
+        Assert.Equal(("LUDHIANA", "Punjab", "India", "141010"), (vardhman.City, vardhman.Cells["State"], vardhman.Cells["Country"], vardhman.Cells["PostalCode"]));
+        Assert.Contains("Read from the address", vardhman.Note);
+        var sun = result.India.Single(row => row.Name == "SUN NUTRAFOODS");
+        Assert.Equal(("MANDIDEEP", "Madhya Pradesh", "462046"), (sun.City, sun.Cells["State"], sun.Cells["PostalCode"]));
+        var trident = result.India.Single(row => row.Name == "TRIDENT LIMITED");
+        Assert.Equal(("SEHORE", "Madhya Pradesh"), (trident.City, trident.Cells["State"]));
+        var milsped = result.Overseas.Single(row => row.Name == "MILSPED");
+        Assert.Equal(("BELGRADE", "Serbia", "11070"), (milsped.City, milsped.Cells["Country"], milsped.Cells["PostalCode"]));
+        Assert.False(milsped.Cells.ContainsKey("State"));
+        Assert.Equal(("ROMA", "Italy"), (result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).City, result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).Country));
+        Assert.Equal("FROSINONE", result.Overseas.Single(row => row.Name.StartsWith("KLOPMAN")).City);
+        Assert.Equal("Algeria", result.Overseas.Single(row => row.Name.StartsWith("SARL BLUE")).Country);
+    }
+
+    [Fact]
+    public void Missing_location_is_read_from_the_address_and_left_blank_when_unclear()
+    {
+        using var stream = BuildSheet(
+            Row(("W", "Zip Co"), ("X", "Consignee"), ("Y", "11742, 187th Street,"), ("Z", "Artesia, CA 90701, USA"), ("AB", "."), ("AC", "."), ("AD", ".")),
+            Row(("W", "Known Country"), ("X", "Consignee"), ("Y", "Hauptstrasse 5"), ("Z", "8001 Zurich"), ("AD", "Switzerland")),
+            Row(("W", "Vague Ltd"), ("X", "Shipper"), ("Y", "Near the old market"), ("AB", ","), ("AD", ",")));
+
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+
+        var zip = result.Overseas.Single(row => row.Name == "Zip Co");
+        Assert.Equal(("Artesia", "California", "United States of America", "90701"), (zip.City, zip.Cells["State"], zip.Country, zip.Cells["PostalCode"]));
+        var known = result.Overseas.Single(row => row.Name == "Known Country");
+        Assert.Equal(("Zurich", "8001"), (known.City, known.Cells["PostalCode"]));
+        var vague = Assert.Single(result.Held);
+        Assert.Equal("Vague Ltd", vague.Name);
+        Assert.Contains("could not be found in the address", vague.Reason);
     }
 
     [Fact]

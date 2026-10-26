@@ -96,12 +96,28 @@ public sealed class OrganisationConverter
     public ConversionResult Convert(IReadOnlyList<ClientRow> rows, MappingCatalog catalog)
     {
         var result = new ConversionResult();
-        var organisations = MergeDuplicates(rows.Select(UseInvoicedSectionWhenMainIsBlank), result.Merged);
+        var locationNotes = new Dictionary<int, string>();
+        var prepared = rows
+            .Select(UseInvoicedSectionWhenMainIsBlank)
+            .Select(row => FillLocationFromAddress(row, catalog, locationNotes))
+            .ToList();
+        var organisations = MergeDuplicates(prepared, result.Merged);
 
         foreach (var (row, addressFromRow) in organisations)
         {
             var name = First(row, "W", "J");
-            var note = addressFromRow is int from ? HoldReason.AddressUpdatedFrom(from) : null;
+            var notes = new List<string>();
+            if (addressFromRow is int from)
+            {
+                notes.Add(HoldReason.AddressUpdatedFrom(from));
+            }
+
+            if (locationNotes.TryGetValue(addressFromRow ?? row.RowNumber, out var located))
+            {
+                notes.Add(located);
+            }
+
+            var note = notes.Count > 0 ? string.Join(" ", notes) : null;
             var city = Value(row, "AB");
             var state = Value(row, "AC");
             var countryRaw = Value(row, "AD");
@@ -150,6 +166,10 @@ public sealed class OrganisationConverter
             if (LooksLikeStreet(city))
             {
                 reasons.Add(HoldReason.StreetCity(city));
+            }
+            else if (ResolveCountry(city, catalog) is { } cityCountry && cityCountry != canonical)
+            {
+                reasons.Add(HoldReason.CityIsCountry(city));
             }
             else if (canonical is not null
                 && city.Length > 0
@@ -374,7 +394,7 @@ public sealed class OrganisationConverter
             return null;
         }
 
-        var key = MappingSeed.NormalizeAlias(raw);
+        var key = MappingSeed.NormalizeAlias(raw.Trim().TrimEnd('.', ',', ';'));
         return catalog.CountryAliases.TryGetValue(key, out var canonical) ? canonical : null;
     }
 
@@ -507,6 +527,70 @@ public sealed class OrganisationConverter
     private static bool HasText(string value) => value.Any(char.IsLetterOrDigit);
 
     public static string NameKey(string name) => NonAlphanumeric.Replace(name.ToUpperInvariant(), string.Empty);
+
+    private static ClientRow FillLocationFromAddress(ClientRow row, MappingCatalog catalog, Dictionary<int, string> notes)
+    {
+        (string Column, string Label)[] location = [("AB", "city"), ("AC", "state"), ("AD", "country")];
+        var missing = location.Where(item => !HasText(Value(row, item.Column))).ToList();
+        if (missing.Count == 0)
+        {
+            return row;
+        }
+
+        var cells = new Dictionary<string, string>(row.Cells, StringComparer.OrdinalIgnoreCase);
+        foreach (var (column, _) in missing)
+        {
+            cells.Remove(column);
+        }
+
+        var knownCountry = ResolveCountry(Value(row, "AD"), catalog);
+        var located = AddressLocator.Locate([Value(row, "Y"), Value(row, "Z"), Value(row, "AA")], catalog, knownCountry);
+        var found = new List<string>();
+        var notFound = new List<string>();
+        foreach (var (column, label) in missing)
+        {
+            var value = column switch
+            {
+                "AB" => located.City,
+                "AC" => located.State,
+                _ => located.Country
+            };
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                cells[column] = value;
+                found.Add($"{label} {value}");
+            }
+            else if (column != "AC")
+            {
+                notFound.Add(label);
+            }
+        }
+
+        if (found.Count > 0 && !HasText(Value(row, "AE")) && !string.IsNullOrWhiteSpace(located.PostalCode))
+        {
+            cells["AE"] = located.PostalCode;
+            found.Add($"postal code {located.PostalCode}");
+        }
+
+        var parts = new List<string>();
+        if (found.Count > 0)
+        {
+            parts.Add(HoldReason.ReadFromAddress(found));
+        }
+
+        if (notFound.Count > 0)
+        {
+            parts.Add(HoldReason.NotInAddress(notFound));
+        }
+
+        if (parts.Count > 0)
+        {
+            notes[row.RowNumber] = string.Join(" ", parts);
+        }
+
+        return row with { Cells = cells };
+    }
 
     private static ClientRow UseInvoicedSectionWhenMainIsBlank(ClientRow row)
     {

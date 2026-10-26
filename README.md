@@ -6,6 +6,8 @@ Turns the client organisation workbook into the two Excel files Logi-Sys accepts
 - Every other country goes into a copy of `OrgMaster-Overseas-Template.xlsx`.
 - The city is written to both City and BranchName.
 - Organisation details are read from columns W–AG. When W is blank (organisations to be invoiced), they are read from the invoiced section instead: J name, K type, N–P address, Q city, R state, S country, T postal code, U telephone, AI email.
+- When city, state or country is blank or only punctuation (such as "."), it is read from the address lines: the country name in the address, an Indian state name or 6-digit PIN code (which also gives the state), or a US state code with ZIP. The city is the place next to them, and a postal code found there fills a blank postal code. The run page shows what was read. When the address is unclear, nothing is guessed and the row is held.
+- A city that is the name of another country is held.
 - An organisation listed more than once (names compared ignoring case, spaces and punctuation) is created once. The first row is kept; its address comes from the latest request (column A timestamp) that has a city and country, its organisation types are added, and blank fields are filled from it. The later row shows as Merged.
 - Rows with a missing name, an unknown country, a street in the city column, a city that repeats a non-state, or a bad India PAN / GSTIN are left out and listed with the reason.
 

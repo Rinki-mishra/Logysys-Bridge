@@ -15,6 +15,15 @@ public static class HoldReason
     public static string MergedInto(int row) =>
         $"Same organisation as row {row}. Not created again; its address was used for row {row}.";
 
+    public static string CityIsCountry(string city) =>
+        $"City \"{city}\" is the name of another country. Branch name is taken from the city, so this row was left out.";
+
+    public static string ReadFromAddress(IEnumerable<string> found) =>
+        $"Read from the address: {string.Join(", ", found)}.";
+
+    public static string NotInAddress(IEnumerable<string> labels) =>
+        $"The {string.Join(" and ", labels)} could not be found in the address either.";
+
     public static string AlreadyExists(string existsIn) =>
         $"Already in Logi-Sys ({existsIn}). Not created again; the new address is in the address updates file.";
 
