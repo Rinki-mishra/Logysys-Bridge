@@ -103,6 +103,10 @@ public sealed class ConversionRunRow
     public DateTime? ImportUpdatedAtUtc { get; set; }
 
     public DateTime? EmailedAtUtc { get; set; }
+
+    public string? LedgerJson { get; set; }
+
+    public DateTime? LedgerLinkedAtUtc { get; set; }
 }
 
 public sealed class ExistingOrganisation

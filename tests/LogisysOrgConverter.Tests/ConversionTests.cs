@@ -286,6 +286,55 @@ public class ConversionTests
         Assert.Equal(["Acme, Inc", "Zed Ltd"], OrganisationListReader.Read(csv, "orgs.csv"));
     }
 
+    [Fact]
+    public void Invoiced_organisations_get_the_ledger_link_checklist()
+    {
+        using var stream = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Book1_organization.xlsx"));
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+
+        Assert.All(result.India.Concat(result.Overseas).Where(row => row.SourceRowNumber is 2 or 3 or 20), row => Assert.Null(row.Ledger));
+
+        var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM")).Ledger!;
+        Assert.Equal("India", metachem.Category);
+        Assert.Equal(["India receivable – shipper, consignee", "India payable – agent, carrier, service"], metachem.Sections.Select(section => section.Title).ToArray());
+        Assert.Equal(0, metachem.MissingCount);
+        Assert.Equal(LedgerItemStates.Provided, metachem.Sections[0].Items.Single(item => item.Label == "TAN").State);
+
+        var neoPoly = result.India.Single(row => row.Name.StartsWith("NEO POLY")).Ledger!;
+        Assert.Equal(LedgerItemStates.Missing, neoPoly.Sections[0].Items.Single(item => item.Label == "TAN").State);
+        Assert.Contains(neoPoly.Sections[0].Notes, note => note.Contains("TDS challan"));
+        Assert.Equal("1 required document is missing.", neoPoly.Summary);
+
+        Assert.Equal(LedgerChecklist.UnknownCountry, result.Held.Single(row => row.Name.StartsWith("SEROJET")).Ledger!.Category);
+    }
+
+    [Fact]
+    public void Ledger_rules_follow_country_and_organisation_type()
+    {
+        Dictionary<string, string> Cells(params (string, string)[] values) =>
+            values.ToDictionary(value => value.Item1, value => value.Item2, StringComparer.OrdinalIgnoreCase);
+
+        var usCustomer = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Consignee")), "United States of America");
+        Assert.Contains(usCustomer.Sections[0].Items, item => item.Label == "W9 form");
+        Assert.Contains(usCustomer.Sections[0].Items, item => item.State == LedgerItemStates.Approval && item.Label.Contains("JP sir"));
+
+        var agent = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Overseas Agent"), ("M", "https://drive/agreement")), "Germany");
+        var agentItems = Assert.Single(agent.Sections).Items;
+        Assert.Contains(agentItems, item => item.Label.Contains("Shivangi") && item.State == LedgerItemStates.Approval);
+        Assert.Equal(LedgerItemStates.Missing, agentItems.Single(item => item.Label == "WCA ID").State);
+        Assert.Equal(LedgerItemStates.Provided, agentItems.Single(item => item.Label == "Agency agreement").State);
+
+        var carrier = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Shipping Line")), "Singapore");
+        Assert.Equal("Overseas payable – carrier, service", Assert.Single(carrier.Sections).Title);
+
+        var dubai = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Shipper"), ("AM", "TL-12345"), ("AO", "100234567800003")), "United Arab Emirates");
+        Assert.Equal(0, dubai.MissingCount);
+
+        var nepal = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Consignee")), "Nepal");
+        Assert.Contains("OVR RECEIVABLE", Assert.Single(nepal.Sections).Notes[0]);
+        Assert.Equal(2, nepal.MissingCount);
+    }
+
     private static Dictionary<string, string> Row(params (string Column, string Value)[] cells) =>
         cells.ToDictionary(cell => cell.Column, cell => cell.Value, StringComparer.OrdinalIgnoreCase);
 

@@ -94,6 +94,28 @@ public class DetailModel : PageModel
         return RedirectToPage(new { id });
     }
 
+    public async Task<IActionResult> OnPostLedgerAsync(Guid id, int rowId, bool linked, CancellationToken cancellationToken)
+    {
+        var changed = await _store.SetLedgerLinkedAsync(id, rowId, linked, cancellationToken);
+        Message = changed ? (linked ? "Marked as ledger linked." : "Ledger link cleared.") : "That row could not be changed.";
+        return RedirectToPage(null, null, new { id }, "ledger");
+    }
+
+    public async Task<IActionResult> OnGetLedgerFileAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var run = await _store.GetRunAsync(id, cancellationToken);
+        if (run is null || !run.Rows.Any(row => row.LedgerJson is not null))
+        {
+            return NotFound();
+        }
+
+        var stamp = IndiaTime(run.CreatedAtUtc).ToString("yyyyMMdd-HHmm");
+        return File(
+            LedgerChecklistWriter.Write(run.Rows.Where(row => row.LedgerJson is not null)),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"LedgerLink-Checklist-{stamp}.xlsx");
+    }
+
     public async Task<IActionResult> OnGetFileAsync(Guid id, string which, CancellationToken cancellationToken)
     {
         var run = await _store.GetRunAsync(id, cancellationToken);

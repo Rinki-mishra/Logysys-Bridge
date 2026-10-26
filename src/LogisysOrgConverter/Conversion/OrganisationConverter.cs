@@ -14,7 +14,8 @@ public sealed record ReadyOrganisation(
     IReadOnlyDictionary<string, string> Cells,
     string? RequesterEmail = null,
     string? RequesterName = null,
-    string? Note = null);
+    string? Note = null,
+    LedgerChecklist? Ledger = null);
 
 public sealed record MergedOrganisation(
     int SourceRowNumber,
@@ -42,7 +43,8 @@ public sealed record AddressUpdate(
     DateTime? RequestedAt,
     int? AddressFromRow,
     string? RequesterEmail = null,
-    string? RequesterName = null);
+    string? RequesterName = null,
+    LedgerChecklist? Ledger = null);
 
 public sealed record HeldOrganisation(
     int SourceRowNumber,
@@ -53,7 +55,8 @@ public sealed record HeldOrganisation(
     string? Country,
     string Reason,
     string? RequesterEmail = null,
-    string? RequesterName = null);
+    string? RequesterName = null,
+    LedgerChecklist? Ledger = null);
 
 public sealed class ConversionResult
 {
@@ -125,6 +128,7 @@ public sealed class OrganisationConverter
             var requesterEmail = CleanEmail(Value(row, "B"));
             var requesterName = Value(row, "D");
             var reasons = new List<string>();
+            var ledger = LedgerRules.IsInvoiced(row.Cells) ? LedgerRules.Build(row.Cells, canonical) : null;
 
             if (name.Length > 0 && catalog.ExistingOrganisations.TryGetValue(NameKey(name), out var existsIn))
             {
@@ -145,7 +149,8 @@ public sealed class OrganisationConverter
                     requestedAt == DateTime.MinValue ? null : requestedAt,
                     addressFromRow,
                     requesterEmail,
-                    requesterName));
+                    requesterName,
+                    ledger));
                 continue;
             }
 
@@ -206,7 +211,8 @@ public sealed class OrganisationConverter
                     canonical ?? countryRaw,
                     string.Join(" ", reasons),
                     requesterEmail,
-                    requesterName));
+                    requesterName,
+                    ledger));
                 continue;
             }
 
@@ -221,7 +227,8 @@ public sealed class OrganisationConverter
                 cells,
                 requesterEmail,
                 requesterName,
-                note);
+                note,
+                ledger);
 
             if (template == MappingCatalog.IndiaTemplate)
             {
@@ -508,6 +515,11 @@ public sealed class OrganisationConverter
         if (types.Count > 0)
         {
             cells["X"] = string.Join(", ", types);
+        }
+
+        if (LedgerRules.IsInvoiced(later.Cells))
+        {
+            cells["I"] = later.Cells["I"];
         }
 
         foreach (var (column, value) in later.Cells)

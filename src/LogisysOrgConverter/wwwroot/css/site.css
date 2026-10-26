@@ -249,3 +249,61 @@ code { background: var(--paper); padding: 0.1rem 0.35rem; border-radius: 6px; }
     form[data-convert-form], .add-form { display: grid; }
     button, .button { width: 100%; }
 }
+
+.ledger-card {
+    margin-top: 0.6rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    padding: 0 0.9rem;
+}
+
+.ledger-card.missing { border-left-color: var(--held); }
+
+.ledger-card.open { border-left-color: #c58a1d; }
+
+.ledger-card.done { border-left-color: var(--green); }
+
+.ledger-card summary { padding: 0.75rem 0; cursor: pointer; }
+
+.ledger-card summary span { display: inline-block; margin-left: 0.5rem; color: var(--muted); }
+
+.ledger-card .ledger-state { display: block; margin: 0.25rem 0 0; }
+
+.ledger-card.missing .ledger-state { color: var(--held); font-weight: 600; }
+
+.ledger-card.done .ledger-state { color: var(--green); font-weight: 600; }
+
+.ledger-card h3 { margin: 0.6rem 0 0.3rem; font-size: 0.95rem; }
+
+.ledger-items { list-style: none; margin: 0; padding: 0; }
+
+.ledger-items li { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.25rem 0; }
+
+.ledger-note { margin: 0.3rem 0; color: var(--muted); font-size: 0.92rem; }
+
+.ledger-card .mark-form { padding: 0.6rem 0 0.9rem; }
+
+.badge {
+    flex: none;
+    min-width: 5.5rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: center;
+    background: var(--paper);
+    color: var(--muted);
+}
+
+.badge.provided { background: var(--ready-bg); color: var(--green); }
+
+.badge.missing { background: var(--held-bg); color: var(--held); }
+
+.badge.collect, .badge.approval { background: #fdf3dc; color: #7a5410; }
+
+@media (max-width: 640px) {
+    .ledger-items li { flex-direction: column; gap: 0.2rem; }
+    .ledger-card summary span { margin-left: 0; display: block; }
+}

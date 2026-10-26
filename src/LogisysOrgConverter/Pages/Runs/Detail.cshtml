@@ -7,6 +7,11 @@
     var when = DetailModel.IndiaTime(run.CreatedAtUtc).ToString("d MMM yyyy, HH:mm");
     var mergedCount = run.Rows.Count(row => row.Status == RowStatuses.Merged);
     var updateCount = run.Rows.Count(row => row.Status == RowStatuses.Update);
+    var ledgerRows = run.Rows
+        .Select(row => (Row: row, Checklist: LedgerJson.Read(row.LedgerJson)))
+        .Where(item => item.Checklist is not null)
+        .Select(item => (item.Row, Checklist: item.Checklist!))
+        .ToList();
     var templates = new[] { ("India", run.IndiaCount), ("Overseas", run.OverseasCount) }.Where(item => item.Item2 > 0).ToList();
 }
 
@@ -110,6 +115,67 @@
         </form>
     }
 </section>
+
+@if (ledgerRows.Count > 0)
+{
+    <section class="panel step" id="ledger">
+        <p class="eyebrow">To be invoiced</p>
+        <h2>Ledger link: @ledgerRows.Count @(ledgerRows.Count == 1 ? "organisation" : "organisations")</h2>
+        <p class="lead">
+            Column I says these organisations are to be invoiced, so their ledger has to be linked in Logi-Sys.
+            Documents the client gave in the form are checked here; the rest has to be collected, and the approvals taken, before linking.
+        </p>
+        <div class="actions">
+            <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="LedgerFile">Download ledger checklist</a>
+        </div>
+        @foreach (var (row, checklist) in ledgerRows)
+        {
+            <details class="ledger-card @(row.LedgerLinkedAtUtc is not null ? "done" : checklist.MissingCount > 0 ? "missing" : "open")">
+                <summary>
+                    <strong>@row.OrganisationName</strong>
+                    <span class="ledger-meta">Row @row.SourceRowNumber · @checklist.Category · @(row.Status == RowStatuses.Update ? "Already in Logi-Sys" : row.Status)</span>
+                    <span class="ledger-state">
+                        @(row.LedgerLinkedAtUtc is DateTime linkedAt
+                            ? $"Ledger linked {DetailModel.IndiaTime(linkedAt):d MMM, HH:mm} IST"
+                            : checklist.Summary)
+                    </span>
+                </summary>
+                @if (checklist.Sections.Count == 0)
+                {
+                    <p class="lead">No ledger rule matches this organisation's type or country. Check it with the accounts team.</p>
+                }
+                @foreach (var part in checklist.Sections)
+                {
+                    <h3>@part.Title</h3>
+                    <ul class="ledger-items">
+                        @foreach (var item in part.Items)
+                        {
+                            <li>
+                                <span class="badge @item.State.ToLowerInvariant()">@BadgeText(item.State)</span>
+                                <span>@item.Label@(string.IsNullOrWhiteSpace(item.Detail) ? "" : $" — {item.Detail}")</span>
+                            </li>
+                        }
+                    </ul>
+                    @foreach (var note in part.Notes)
+                    {
+                        <p class="ledger-note">@note</p>
+                    }
+                }
+                <form method="post" asp-page-handler="Ledger" asp-route-id="@run.Id" class="mark-form">
+                    <input type="hidden" name="rowId" value="@row.Id" />
+                    @if (row.LedgerLinkedAtUtc is null)
+                    {
+                        <button type="submit" name="linked" value="true" class="small">Mark ledger linked</button>
+                    }
+                    else
+                    {
+                        <button type="submit" name="linked" value="false" class="small ghost">Clear ledger linked</button>
+                    }
+                </form>
+            </details>
+        }
+    </section>
+}
 
 <section class="table-wrap">
     <table>
@@ -220,4 +286,15 @@
             </tbody>
         </table>
     </section>
+}
+
+@functions {
+    private static string BadgeText(string state) => state switch
+    {
+        LogisysOrgConverter.Conversion.LedgerItemStates.Provided => "In the form",
+        LogisysOrgConverter.Conversion.LedgerItemStates.Missing => "Missing",
+        LogisysOrgConverter.Conversion.LedgerItemStates.Collect => "To collect",
+        LogisysOrgConverter.Conversion.LedgerItemStates.Approval => "Approval",
+        _ => "Optional"
+    };
 }

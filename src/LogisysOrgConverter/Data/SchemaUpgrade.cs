@@ -12,7 +12,9 @@ public static class SchemaUpgrade
         "IF COL_LENGTH('dbo.RunRows', 'ImportStatus') IS NULL ALTER TABLE dbo.RunRows ADD [ImportStatus] nvarchar(20) NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'ImportMessage') IS NULL ALTER TABLE dbo.RunRows ADD [ImportMessage] nvarchar(max) NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'ImportUpdatedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [ImportUpdatedAtUtc] datetime2 NULL;",
-        "IF COL_LENGTH('dbo.RunRows', 'EmailedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [EmailedAtUtc] datetime2 NULL;"
+        "IF COL_LENGTH('dbo.RunRows', 'EmailedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [EmailedAtUtc] datetime2 NULL;",
+        "IF COL_LENGTH('dbo.RunRows', 'LedgerJson') IS NULL ALTER TABLE dbo.RunRows ADD [LedgerJson] nvarchar(max) NULL;",
+        "IF COL_LENGTH('dbo.RunRows', 'LedgerLinkedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [LedgerLinkedAtUtc] datetime2 NULL;"
     ];
 
     public static async Task ApplyAsync(AppDbContext db, CancellationToken cancellationToken = default)

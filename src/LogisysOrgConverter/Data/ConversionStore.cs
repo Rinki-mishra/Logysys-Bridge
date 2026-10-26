@@ -65,7 +65,8 @@ public sealed class ConversionStore
                 State = NullIfBlank(update.State),
                 Country = NullIfBlank(update.Country),
                 RequesterEmail = update.RequesterEmail,
-                RequesterName = NullIfBlank(update.RequesterName)
+                RequesterName = NullIfBlank(update.RequesterName),
+                LedgerJson = LedgerJson.Write(update.Ledger)
             });
         }
 
@@ -89,7 +90,8 @@ public sealed class ConversionStore
                 State = held.State,
                 Country = held.Country,
                 RequesterEmail = held.RequesterEmail,
-                RequesterName = NullIfBlank(held.RequesterName)
+                RequesterName = NullIfBlank(held.RequesterName),
+                LedgerJson = LedgerJson.Write(held.Ledger)
             });
         }
 
@@ -197,8 +199,24 @@ public sealed class ConversionStore
         State = ready.State,
         Country = ready.Country,
         RequesterEmail = ready.RequesterEmail,
-        RequesterName = NullIfBlank(ready.RequesterName)
+        RequesterName = NullIfBlank(ready.RequesterName),
+        LedgerJson = LedgerJson.Write(ready.Ledger)
     };
+
+    public async Task<bool> SetLedgerLinkedAsync(Guid runId, int rowId, bool linked, CancellationToken cancellationToken = default)
+    {
+        var row = await _db.RunRows.FirstOrDefaultAsync(
+            item => item.Id == rowId && item.RunId == runId && item.LedgerJson != null,
+            cancellationToken);
+        if (row is null)
+        {
+            return false;
+        }
+
+        row.LedgerLinkedAtUtc = linked ? DateTime.UtcNow : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
 
     // Ready rows of this run that also sit, not yet imported, in another run's file.
     public async Task<IReadOnlyDictionary<int, string>> GetPendingElsewhereAsync(Guid runId, CancellationToken cancellationToken = default)

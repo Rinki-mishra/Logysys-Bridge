@@ -38,6 +38,17 @@ dotnet test
 
 Upload each downloaded file in Logi-Sys under Directories → Organisations → Import.
 
+## Ledger link
+
+Organisations with column I ("to be invoiced") = Yes get a ledger-link checklist on the run page, following "Document required during Ledger link – Logisys":
+
+- **India**: shipper/consignee → receivable (KYC on letterhead, PAN, TAN, GST mandatory; IEC; COI). Agent/carrier/service → payable (GST, PAN, MSME or non-MSME declaration). Transport/commission → Aadhaar, PAN, cancelled cheque, GST/MSME.
+- **Overseas**: shipper/consignee → receivable (direct billing and credit approval, credit form, tax certificate, W9 for the USA, approval from JP sir with reporting manager). Agent → approval from Shivangi (sea) / Aditya (air), WCA ID, agency agreement. Carrier/service → payable (Form 41, formerly 10F, or agency agreement; TRC or agency agreement).
+- **Dubai**: agent as overseas agent; others VAT and trade licence, or agency agreement.
+- **Nepal**: KYC in SAR format, PAN; mark OVR RECEIVABLE.
+
+Documents given in the form (KYC, PAN, TAN, GST, IEC, WCA, agency agreement) are checked; the rest are listed to collect, with the approvals. **Download ledger checklist** gives the same as a sheet, and **Mark ledger linked** records when it is done.
+
 ## Emailing the requestor
 
 After the import, open the run page again.
