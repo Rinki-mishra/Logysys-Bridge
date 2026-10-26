@@ -122,6 +122,18 @@ public sealed class ExistingOrganisation
     public DateTime AddedAtUtc { get; set; }
 }
 
+public sealed class GoogleConnection
+{
+    public int Id { get; set; }
+
+    public string Email { get; set; } = string.Empty;
+
+    // Encrypted with ASP.NET Core data protection; never stored in plain text.
+    public string ProtectedRefreshToken { get; set; } = string.Empty;
+
+    public DateTime ConnectedAtUtc { get; set; }
+}
+
 public static class RowStatuses
 {
     public const string Ready = "Ready";

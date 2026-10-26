@@ -51,6 +51,32 @@ Documents given in the form (KYC, PAN, TAN, GST, IEC, WCA, agency agreement) are
 
 **Send document requests** emails each requestor (column B) once, listing per organisation the documents still needed (missing from the form, or not asked in it), the approvals, and the notes (TAN/TDS, non-MSME declaration). Organisations already ledger linked or already asked are skipped.
 
+## GSTIN from the GST certificate
+
+For India organisations the app opens the GST certificate linked in column AP (GST Document, a Google Drive upload), reads the GSTIN next to "Registration Number" and puts it in `REG-GSTIN`, which Logi-Sys imports into Reg → GSTIN. A number only counts if its last (check) character is correct.
+
+- Certificate read, form blank or different → the certificate's GSTIN is used; the run page shows what the form said.
+- Certificate can't be read (not connected, no access, scanned image, not a PDF) → the GSTIN typed in column AO is used and the run page says why.
+- The usual PAN and state-code checks still apply to the result.
+
+The links are private, so the app reads them with a Google account you connect once on the **Google Drive** page:
+
+1. In [Google Cloud console](https://console.cloud.google.com/projectcreate), signed in as the account that owns the form uploads, create a project and enable **Google Drive API**.
+2. OAuth consent screen: user type **Internal**.
+3. Credentials → **OAuth client ID** → **Web application**, authorised redirect URI `http://localhost:43123/Google/Callback`.
+4. Put the client ID and secret in `appsettings.Local.json`, restart, open the app at `http://localhost:43123`, and click **Connect Google Drive**:
+
+```json
+"Google": {
+  "ClientId": "....apps.googleusercontent.com",
+  "ClientSecret": "...",
+  "LoginHint": "riya@tnpsfl.com",
+  "RedirectUri": "http://localhost:43123/Google/Callback"
+}
+```
+
+The app asks for read-only Drive access. The sign-in is stored encrypted in the `GoogleConnections` table; **Disconnect** removes it and revokes it at Google. Scanned or photographed certificates are not read (no OCR); they fall back to the typed GSTIN.
+
 ## Emailing the requestor
 
 After the import, open the run page again.

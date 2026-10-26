@@ -92,11 +92,20 @@ public sealed class OrganisationConverter
         ("AC", "R"), ("AD", "S"), ("AE", "T"), ("AF", "U"), ("AG", "AI")
     ];
 
+    public const string GstNumberColumn = "AO";
+
+    public const string GstDocumentColumn = "AP";
+
+    public const string PanColumn = "AM";
+
     private static readonly string[] AddressColumns = ["Y", "Z", "AA", "AB", "AC", "AD", "AE"];
 
     private static readonly Regex NonAlphanumeric = new("[^A-Z0-9]", RegexOptions.Compiled);
 
-    public ConversionResult Convert(IReadOnlyList<ClientRow> rows, MappingCatalog catalog)
+    public ConversionResult Convert(
+        IReadOnlyList<ClientRow> rows,
+        MappingCatalog catalog,
+        IReadOnlyDictionary<string, GstCertificate>? gstCertificates = null)
     {
         var result = new ConversionResult();
         var locationNotes = new Dictionary<int, string>();
@@ -106,8 +115,9 @@ public sealed class OrganisationConverter
             .ToList();
         var organisations = MergeDuplicates(prepared, result.Merged);
 
-        foreach (var (row, addressFromRow) in organisations)
+        foreach (var (organisation, addressFromRow) in organisations)
         {
+            var row = organisation;
             var name = First(row, "W", "J");
             var notes = new List<string>();
             if (addressFromRow is int from)
@@ -120,7 +130,6 @@ public sealed class OrganisationConverter
                 notes.Add(located);
             }
 
-            var note = notes.Count > 0 ? string.Join(" ", notes) : null;
             var city = Value(row, "AB");
             var state = Value(row, "AC");
             var countryRaw = Value(row, "AD");
@@ -188,6 +197,12 @@ public sealed class OrganisationConverter
             var template = canonical == MappingCatalog.IndiaCountry
                 ? MappingCatalog.IndiaTemplate
                 : MappingCatalog.OverseasTemplate;
+            if (template == MappingCatalog.IndiaTemplate)
+            {
+                row = UseGstinFromCertificate(row, gstCertificates, notes);
+            }
+
+            var note = notes.Count > 0 ? string.Join(" ", notes) : null;
             var cells = BuildCells(row, catalog, template, canonical);
 
             if (template == MappingCatalog.IndiaTemplate && canonical is not null)
@@ -601,6 +616,40 @@ public sealed class OrganisationConverter
             notes[row.RowNumber] = string.Join(" ", parts);
         }
 
+        return row with { Cells = cells };
+    }
+
+    private static ClientRow UseGstinFromCertificate(
+        ClientRow row,
+        IReadOnlyDictionary<string, GstCertificate>? certificates,
+        List<string> notes)
+    {
+        var link = Value(row, GstDocumentColumn);
+        if (certificates is null || link.Length == 0 || !certificates.TryGetValue(link, out var certificate))
+        {
+            return row;
+        }
+
+        var typed = CleanRegistration(Value(row, GstNumberColumn));
+        if (certificate.Gstin is null)
+        {
+            notes.Add(HoldReason.GstCertificateNotRead(certificate.Problem ?? "it could not be read", typed));
+            return row;
+        }
+
+        if (typed == certificate.Gstin)
+        {
+            notes.Add(HoldReason.GstinMatchesCertificate(certificate.Gstin));
+            return row;
+        }
+
+        notes.Add(typed.Length == 0
+            ? HoldReason.GstinFromCertificate(certificate.Gstin)
+            : HoldReason.GstinCorrectedFromCertificate(typed, certificate.Gstin));
+        var cells = new Dictionary<string, string>(row.Cells, StringComparer.OrdinalIgnoreCase)
+        {
+            [GstNumberColumn] = certificate.Gstin
+        };
         return row with { Cells = cells };
     }
 

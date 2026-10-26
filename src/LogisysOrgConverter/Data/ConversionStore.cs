@@ -1,4 +1,5 @@
 using LogisysOrgConverter.Conversion;
+using LogisysOrgConverter.GoogleDrive;
 using Microsoft.EntityFrameworkCore;
 
 namespace LogisysOrgConverter.Data;
@@ -16,24 +17,28 @@ public sealed class ConversionStore
     private readonly OrganisationConverter _converter;
     private readonly TemplateWorkbookWriter _writer;
     private readonly TemplatePaths _templates;
+    private readonly GstCertificateReader _certificates;
 
     public ConversionStore(
         AppDbContext db,
         OrganisationConverter converter,
         TemplateWorkbookWriter writer,
-        TemplatePaths templates)
+        TemplatePaths templates,
+        GstCertificateReader certificates)
     {
         _db = db;
         _converter = converter;
         _writer = writer;
         _templates = templates;
+        _certificates = certificates;
     }
 
     public async Task<Guid> ConvertAsync(string fileName, Stream stream, CancellationToken cancellationToken = default)
     {
         var rows = ClientSheetReader.Read(stream);
         var catalog = await LoadCatalogAsync(cancellationToken);
-        var result = _converter.Convert(rows, catalog);
+        var certificates = await _certificates.ReadAsync(rows, cancellationToken);
+        var result = _converter.Convert(rows, catalog, certificates);
 
         var run = new ConversionRun
         {

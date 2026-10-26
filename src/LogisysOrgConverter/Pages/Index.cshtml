@@ -24,6 +24,16 @@
         </label>
         <button type="submit">Create Logi-Sys files</button>
     </form>
+    <p class="lead">
+        @if (Model.DriveAccount is not null)
+        {
+            <text>GST certificates are read from Google Drive as @Model.DriveAccount and their GSTIN goes into REG-GSTIN.</text>
+        }
+        else
+        {
+            <text>GST certificates are not being read because Google Drive is not connected. <a class="text-link" asp-page="/Google/Index">Connect Google Drive</a></text>
+        }
+    </p>
 </section>
 
 <section class="steps">

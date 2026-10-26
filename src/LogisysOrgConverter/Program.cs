@@ -1,5 +1,6 @@
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
+using LogisysOrgConverter.GoogleDrive;
 using LogisysOrgConverter.Notifications;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,6 +24,10 @@ builder.Services.AddScoped<ExistingOrganisationStore>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
 builder.Services.AddSingleton<MailDelivery>();
 builder.Services.AddScoped<NotificationStore>();
+builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.Section));
+builder.Services.AddHttpClient(GoogleDriveAccess.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddSingleton<GoogleDriveAccess>();
+builder.Services.AddScoped<GstCertificateReader>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 20 * 1024 * 1024;

@@ -65,5 +65,17 @@ public static class SchemaUpgrade
             END
             """,
             cancellationToken);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            IF OBJECT_ID('dbo.GoogleConnections', 'U') IS NULL
+            CREATE TABLE dbo.GoogleConnections (
+                [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT PK_GoogleConnections PRIMARY KEY,
+                [Email] nvarchar(320) NOT NULL,
+                [ProtectedRefreshToken] nvarchar(max) NOT NULL,
+                [ConnectedAtUtc] datetime2 NOT NULL
+            );
+            """,
+            cancellationToken);
     }
 }

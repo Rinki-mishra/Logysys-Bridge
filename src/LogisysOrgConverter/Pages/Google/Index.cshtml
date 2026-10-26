@@ -1,0 +1,90 @@
+@page
+@model LogisysOrgConverter.Pages.Google.IndexModel
+@using LogisysOrgConverter.Pages.Runs
+@{
+    ViewData["Title"] = "Google Drive";
+}
+
+<section class="panel">
+    <p class="eyebrow">GST certificates</p>
+    <h1>Read GSTINs from the uploaded GST certificates</h1>
+    <p class="lead">
+        The request form stores each GST certificate in Google Drive (the GST Document column). When a sheet is converted,
+        the app opens every certificate with the Google account connected here, reads the GSTIN and puts it in REG-GSTIN
+        (Reg tab, GSTIN) for India organisations. If the certificate and the form disagree, the certificate wins and the run page says so.
+    </p>
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <p class="banner ok" role="status">@Model.Message</p>
+    }
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p class="banner" role="alert">@Model.ErrorMessage</p>
+    }
+
+    @if (!Model.IsConfigured)
+    {
+        <p class="banner" role="status">Google sign-in is not set up yet. Until it is, GSTINs come only from the form.</p>
+    }
+    else if (Model.Connection is { } connection)
+    {
+        <p>
+            Connected as <strong>@connection.Email</strong>
+            since @DetailModel.IndiaTime(connection.ConnectedAtUtc).ToString("d MMM yyyy, HH:mm") IST.
+            The app can only read files this account can open.
+        </p>
+        <form method="post" asp-page-handler="Disconnect" class="inline-form">
+            <button type="submit" class="ghost">Disconnect</button>
+        </form>
+    }
+    else
+    {
+        <p>Not connected. Sign in with @(string.IsNullOrWhiteSpace(Model.LoginHint) ? "the Google account that owns the form's uploads" : Model.LoginHint) once; the app keeps that access until you disconnect.</p>
+        <form method="post" asp-page-handler="Connect" class="inline-form">
+            <button type="submit">Connect Google Drive</button>
+        </form>
+    }
+</section>
+
+@if (Model.IsConfigured && Model.Connection is not null)
+{
+    <section class="panel step">
+        <h2>Try one certificate</h2>
+        <p class="lead">Paste a link from the GST Document column to see the GSTIN the app reads from it.</p>
+        <form method="post" asp-page-handler="Test" class="add-form">
+            <label>
+                <span>GST document link</span>
+                <input name="Link" value="@Model.Link" placeholder="https://drive.google.com/open?id=..." size="48" required />
+            </label>
+            <label>
+                <span>PAN (optional)</span>
+                <input name="Pan" value="@Model.Pan" placeholder="AABFS6109H" />
+            </label>
+            <button type="submit">Read GSTIN</button>
+        </form>
+        @if (Model.TestResult is { } result)
+        {
+            @if (result.Gstin is not null)
+            {
+                <p class="banner ok" role="status">GSTIN read from the certificate: <strong>@result.Gstin</strong></p>
+            }
+            else
+            {
+                <p class="banner" role="alert">Not read: @result.Problem.</p>
+            }
+        }
+    </section>
+}
+
+<section class="panel step">
+    <h2>One-time setup</h2>
+    <p class="lead">Google only shows its sign-in screen to apps registered in Google Cloud. Do this once, signed in as @(string.IsNullOrWhiteSpace(Model.LoginHint) ? "your work account" : Model.LoginHint):</p>
+    <ol>
+        <li>Open <a class="text-link" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud console</a> and create a project, for example <code>Logi-Sys Bridge</code>.</li>
+        <li>Under APIs &amp; Services, Library, enable <strong>Google Drive API</strong>.</li>
+        <li>Under APIs &amp; Services, OAuth consent screen, choose user type <strong>Internal</strong> (only your organisation's accounts can sign in), and fill the app name and support email.</li>
+        <li>Under APIs &amp; Services, Credentials, create an <strong>OAuth client ID</strong> of type <strong>Web application</strong>, with this authorised redirect URI:<br /><code>@Model.RedirectUri</code></li>
+        <li>Copy the client ID and secret into the <code>Google</code> section of <code>appsettings.Local.json</code>, restart the app, and come back here to connect.</li>
+    </ol>
+    <p class="lead">Always open the app at the same address as the redirect URI above (for example <code>localhost</code>, not <code>127.0.0.1</code>), or Google will refuse the sign-in.</p>
+</section>

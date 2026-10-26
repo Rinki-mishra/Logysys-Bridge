@@ -51,6 +51,20 @@ public static class HoldReason
     public static string GstinStateMismatch(string gstin, string state) =>
         $"GSTIN \"{gstin}\" does not match the GST state code for {state}.";
 
+    public static string GstinFromCertificate(string gstin) =>
+        $"GSTIN {gstin} was read from the GST certificate (the form had no GST number).";
+
+    public static string GstinCorrectedFromCertificate(string typed, string gstin) =>
+        $"GSTIN {gstin} was taken from the GST certificate; the form said \"{typed}\".";
+
+    public static string GstinMatchesCertificate(string gstin) =>
+        $"GSTIN {gstin} matches the GST certificate.";
+
+    public static string GstCertificateNotRead(string problem, string typed) =>
+        typed.Length > 0
+            ? $"GST certificate not read ({problem}), so the GSTIN typed in the form was used."
+            : $"GST certificate not read ({problem}).";
+
     public static string UnknownGstState(string state) =>
         $"State \"{state}\" is not in the India GST state list, so the GSTIN cannot be checked.";
 }
