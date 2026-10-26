@@ -104,7 +104,16 @@ public class ConversionTests
         Assert.Equal("ABCDE1234F", result.India[1].Cells["REG-PAN NO"]);
         Assert.Contains(result.Held, row => row.Name == "Bad Tax" && row.Reason.Contains("GSTIN"));
         Assert.Contains(result.Held, row => row.Name == "Wrong State Tax" && row.Reason.Contains("does not match"));
-        Assert.Contains(result.Held, row => row.Name == "Goa Minerals" && row.Reason.Contains("already used on row 2"));
+        var goa = result.India[0];
+        Assert.Equal(2, goa.SourceRowNumber);
+        Assert.Equal("Mumbai", goa.City);
+        Assert.Equal("Maharashtra", goa.Cells["State"]);
+        Assert.Equal("yes", goa.Cells["ISConsignee"]);
+        Assert.Equal("yes", goa.Cells["IsShipper"]);
+        Assert.Contains("row 6", goa.Note);
+        var merged = Assert.Single(result.Merged);
+        Assert.Equal((6, 2, true), (merged.SourceRowNumber, merged.MergedIntoRowNumber, merged.AddressUsed));
+        Assert.DoesNotContain(result.Held, row => row.Name == "Goa Minerals");
         Assert.Contains(result.Held, row => row.Name == "Nowhere Ltd" && row.Reason.Contains("Narnia"));
         Assert.Contains(result.Held, row => row.Name == "Street Co" && row.Reason.Contains("street"));
         Assert.Empty(result.Overseas);
@@ -118,7 +127,7 @@ public class ConversionTests
 
         Assert.Equal(
             [
-                "ESTEEM INDUSTRIES PVT.LTD.", "S D BAKHAI & CO", "S. D. Bakhai & co", "VISNUKUMAR TRADERS PVT LTD",
+                "ESTEEM INDUSTRIES PVT.LTD.", "S D BAKHAI & CO", "VISNUKUMAR TRADERS PVT LTD",
                 "PETROCHEM CORPORATION", "PLASTECH", "NEO POLY INDUSTRIES PRIVATE LIMITED",
                 "NAVRATAN SPECIALTY CHEMICALS LLP", "Mantram TechnoFab Pvt. Ltd.",
                 "METACHEM MANUFACTURING COMPANY PRIVATE LIMITED", "PRET MODE"
@@ -141,6 +150,18 @@ public class ConversionTests
         Assert.Equal("27AAACC7064K1ZH", metachem.Cells["REG-GSTIN"]);
         Assert.Equal("AAACC7064K", metachem.Cells["REG-PAN NO"]);
         Assert.Equal("riya@tnpsfl.com", metachem.RequesterEmail);
+
+        var bakhai = result.India.Single(row => row.Name == "S D BAKHAI & CO");
+        Assert.Equal(5, bakhai.SourceRowNumber);
+        Assert.Equal("201 „ SHARDA CHAMBERS.. 15.", bakhai.Cells["BranchAddress1"]);
+        Assert.Equal("NEW MARINE LINES, CHURCHCATE", bakhai.Cells["BranchAddress2"]);
+        Assert.Equal("Mumbai Suburban, Maharashtra, 400020", bakhai.Cells["BranchAddress3"]);
+        Assert.Equal("MUMBAI", bakhai.BranchName);
+        Assert.Equal("27AABFS6109H1Z9", bakhai.Cells["REG-GSTIN"]);
+        Assert.Equal("sdbakhaico@gmail.com", bakhai.Cells["EMailID"]);
+        Assert.Equal("riya@tnpsfl.com", bakhai.RequesterEmail);
+        var merged = Assert.Single(result.Merged);
+        Assert.Equal((6, 5, "S. D. Bakhai & co"), (merged.SourceRowNumber, merged.MergedIntoRowNumber, merged.Name));
 
         Assert.Equal("MUMBAI", result.Held.Single(row => row.Name == "LILARAM GOBINDRAM").City);
         Assert.Contains(result.Held, row => row.Name == "LILARAM GOBINDRAM" && row.Reason.Contains("GSTIN"));

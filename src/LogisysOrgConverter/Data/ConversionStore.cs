@@ -71,6 +71,26 @@ public sealed class ConversionStore
             });
         }
 
+        foreach (var merged in result.Merged)
+        {
+            run.Rows.Add(new ConversionRunRow
+            {
+                RunId = run.Id,
+                SourceRowNumber = merged.SourceRowNumber,
+                OrganisationName = merged.Name,
+                Status = "Merged",
+                Template = string.Empty,
+                Reason = merged.AddressUsed
+                    ? HoldReason.MergedInto(merged.MergedIntoRowNumber)
+                    : HoldReason.MergedIntoWithoutAddress(merged.MergedIntoRowNumber),
+                BranchName = NullIfBlank(merged.City),
+                City = NullIfBlank(merged.City),
+                Country = NullIfBlank(merged.Country),
+                RequesterEmail = merged.RequesterEmail,
+                RequesterName = NullIfBlank(merged.RequesterName)
+            });
+        }
+
         run.Rows = run.Rows.OrderBy(item => item.SourceRowNumber).ToList();
         _db.Runs.Add(run);
         await _db.SaveChangesAsync(cancellationToken);
@@ -126,6 +146,7 @@ public sealed class ConversionStore
         OrganisationName = ready.Name,
         Status = "Ready",
         Template = ready.TemplateCode == MappingCatalog.IndiaTemplate ? "India" : "Overseas",
+        Reason = ready.Note,
         BranchName = ready.BranchName,
         City = ready.City,
         State = ready.State,

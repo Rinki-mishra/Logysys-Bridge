@@ -12,7 +12,18 @@ public sealed record ReadyOrganisation(
     string Country,
     IReadOnlyDictionary<string, string> Cells,
     string? RequesterEmail = null,
-    string? RequesterName = null);
+    string? RequesterName = null,
+    string? Note = null);
+
+public sealed record MergedOrganisation(
+    int SourceRowNumber,
+    string Name,
+    int MergedIntoRowNumber,
+    bool AddressUsed,
+    string? City,
+    string? Country,
+    string? RequesterEmail,
+    string? RequesterName);
 
 public sealed record HeldOrganisation(
     int SourceRowNumber,
@@ -32,6 +43,8 @@ public sealed class ConversionResult
     public List<ReadyOrganisation> Overseas { get; } = [];
 
     public List<HeldOrganisation> Held { get; } = [];
+
+    public List<MergedOrganisation> Merged { get; } = [];
 }
 
 public sealed class OrganisationConverter
@@ -55,15 +68,19 @@ public sealed class OrganisationConverter
         ("AC", "R"), ("AD", "S"), ("AE", "T"), ("AF", "U"), ("AG", "AI")
     ];
 
+    private static readonly string[] AddressColumns = ["Y", "Z", "AA", "AB", "AC", "AD", "AE"];
+
+    private static readonly Regex NonAlphanumeric = new("[^A-Z0-9]", RegexOptions.Compiled);
+
     public ConversionResult Convert(IReadOnlyList<ClientRow> rows, MappingCatalog catalog)
     {
         var result = new ConversionResult();
-        var seenNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var organisations = MergeDuplicates(rows.Select(UseInvoicedSectionWhenMainIsBlank), result.Merged);
 
-        foreach (var sourceRow in rows)
+        foreach (var (row, addressFromRow) in organisations)
         {
-            var row = UseInvoicedSectionWhenMainIsBlank(sourceRow);
             var name = First(row, "W", "J");
+            var note = addressFromRow is int from ? HoldReason.AddressUpdatedFrom(from) : null;
             var city = Value(row, "AB");
             var state = Value(row, "AC");
             var countryRaw = Value(row, "AD");
@@ -75,14 +92,6 @@ public sealed class OrganisationConverter
             if (name.Length == 0)
             {
                 reasons.Add(HoldReason.MissingName);
-            }
-            else if (seenNames.TryGetValue(name, out var firstRow))
-            {
-                reasons.Add(HoldReason.DuplicateName(name, firstRow));
-            }
-            else
-            {
-                seenNames[name] = row.RowNumber;
             }
 
             if (countryRaw.Length == 0)
@@ -119,6 +128,11 @@ public sealed class OrganisationConverter
 
             if (reasons.Count > 0)
             {
+                if (note is not null)
+                {
+                    reasons.Add(note);
+                }
+
                 result.Held.Add(new HeldOrganisation(
                     row.RowNumber,
                     name,
@@ -142,7 +156,8 @@ public sealed class OrganisationConverter
                 canonical!,
                 cells,
                 requesterEmail,
-                requesterName);
+                requesterName,
+                note);
 
             if (template == MappingCatalog.IndiaTemplate)
             {
@@ -318,6 +333,99 @@ public sealed class OrganisationConverter
         var key = MappingSeed.NormalizeAlias(raw);
         return catalog.CountryAliases.TryGetValue(key, out var canonical) ? canonical : null;
     }
+
+    // Rows naming the same organisation (ignoring case, spaces and punctuation) become one
+    // organisation: the first row is kept, and a later row's address replaces the earlier one.
+    private static List<(ClientRow Row, int? AddressFromRow)> MergeDuplicates(
+        IEnumerable<ClientRow> rows,
+        List<MergedOrganisation> merged)
+    {
+        var organisations = new List<(ClientRow Row, int? AddressFromRow)>();
+        var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+        var duplicates = new List<(ClientRow Row, int Index)>();
+
+        foreach (var row in rows)
+        {
+            var key = NameKey(First(row, "W", "J"));
+            if (key.Length == 0 || !indexByName.TryGetValue(key, out var index))
+            {
+                if (key.Length > 0)
+                {
+                    indexByName[key] = organisations.Count;
+                }
+
+                organisations.Add((row, null));
+                continue;
+            }
+
+            var (kept, addressFromRow) = organisations[index];
+            var hasAddress = HasText(Value(row, "AB")) && HasText(Value(row, "AD"));
+            organisations[index] = (MergeInto(kept, row, hasAddress), hasAddress ? row.RowNumber : addressFromRow);
+            duplicates.Add((row, index));
+        }
+
+        foreach (var (row, index) in duplicates)
+        {
+            var (kept, addressFromRow) = organisations[index];
+            merged.Add(new MergedOrganisation(
+                row.RowNumber,
+                First(row, "W", "J"),
+                kept.RowNumber,
+                addressFromRow == row.RowNumber,
+                Value(row, "AB"),
+                Value(row, "AD"),
+                CleanEmail(Value(row, "B")),
+                Value(row, "D")));
+        }
+
+        return organisations;
+    }
+
+    private static ClientRow MergeInto(ClientRow kept, ClientRow later, bool takeAddress)
+    {
+        var cells = new Dictionary<string, string>(kept.Cells, StringComparer.OrdinalIgnoreCase);
+
+        if (takeAddress)
+        {
+            foreach (var column in AddressColumns)
+            {
+                var value = Value(later, column);
+                if (value.Length > 0)
+                {
+                    cells[column] = value;
+                }
+                else
+                {
+                    cells.Remove(column);
+                }
+            }
+        }
+
+        var types = ReadTypes(Value(kept, "X")).Concat(ReadTypes(Value(later, "X")))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (types.Count > 0)
+        {
+            cells["X"] = string.Join(", ", types);
+        }
+
+        foreach (var (column, value) in later.Cells)
+        {
+            if (!cells.ContainsKey(column) && !AddressColumns.Contains(column, StringComparer.OrdinalIgnoreCase))
+            {
+                cells[column] = value;
+            }
+        }
+
+        return kept with { Cells = cells };
+    }
+
+    private static IEnumerable<string> ReadTypes(string raw) =>
+        raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static bool HasText(string value) => value.Any(char.IsLetterOrDigit);
+
+    private static string NameKey(string name) => NonAlphanumeric.Replace(name.ToUpperInvariant(), string.Empty);
 
     private static ClientRow UseInvoicedSectionWhenMainIsBlank(ClientRow row)
     {

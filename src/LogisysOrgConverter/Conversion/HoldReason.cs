@@ -9,8 +9,14 @@ public static class HoldReason
     public static string UnknownCountry(string country) =>
         $"Country \"{country}\" is not in the country list. Add it, then upload the sheet again.";
 
-    public static string DuplicateName(string name, int firstRow) =>
-        $"Organisation name \"{name}\" is already used on row {firstRow}.";
+    public static string AddressUpdatedFrom(int row) =>
+        $"Address updated from row {row}, which is the same organisation.";
+
+    public static string MergedInto(int row) =>
+        $"Same organisation as row {row}. Not created again; its address was used for row {row}.";
+
+    public static string MergedIntoWithoutAddress(int row) =>
+        $"Same organisation as row {row}. Not created again.";
 
     public static string StreetCity(string city) =>
         $"City \"{city}\" looks like a street. Branch name is taken from the city, so this row was left out.";

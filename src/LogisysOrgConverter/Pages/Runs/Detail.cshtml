@@ -5,13 +5,17 @@
     ViewData["Title"] = "Converted files";
     var run = Model.Run!;
     var when = DetailModel.IndiaTime(run.CreatedAtUtc).ToString("d MMM yyyy, HH:mm");
+    var mergedCount = run.Rows.Count(row => row.Status == "Merged");
     var templates = new[] { ("India", run.IndiaCount), ("Overseas", run.OverseasCount) }.Where(item => item.Item2 > 0).ToList();
 }
 
 <section class="panel">
     <p class="eyebrow">@run.SourceFileName</p>
     <h1>@run.IndiaCount India @(run.IndiaCount == 1 ? "row" : "rows") and @run.OverseasCount overseas @(run.OverseasCount == 1 ? "row" : "rows") are ready. @run.HeldCount @(run.HeldCount == 1 ? "was" : "were") held back.</h1>
-    <p class="lead">Converted @when IST. Ready rows are in the download files. Held rows were left out.</p>
+    <p class="lead">Converted @when IST. Ready rows are in the download files. Held rows were left out.@if (mergedCount > 0)
+        {
+            <text> @mergedCount repeated @(mergedCount == 1 ? "row was" : "rows were") merged into the first row for the same organisation, so it is created once.</text>
+        }</p>
 
     @if (!string.IsNullOrEmpty(Model.Message))
     {
@@ -116,7 +120,7 @@
         <tbody>
             @foreach (var row in run.Rows)
             {
-                <tr class="@(row.Status == "Held" ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
+                <tr class="@(row.Status == "Merged" ? "merged" : row.Status == "Held" ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
                     <td>@row.SourceRowNumber</td>
                     <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
                     <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
