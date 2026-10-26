@@ -110,6 +110,45 @@ public class ConversionTests
         Assert.Empty(result.Overseas);
     }
 
+    [Fact]
+    public void Invoiced_organisations_are_read_from_the_j_to_u_section()
+    {
+        using var stream = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Book1_organization.xlsx"));
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+
+        Assert.Equal(
+            [
+                "ESTEEM INDUSTRIES PVT.LTD.", "S D BAKHAI & CO", "S. D. Bakhai & co", "VISNUKUMAR TRADERS PVT LTD",
+                "PETROCHEM CORPORATION", "PLASTECH", "NEO POLY INDUSTRIES PRIVATE LIMITED",
+                "NAVRATAN SPECIALTY CHEMICALS LLP", "Mantram TechnoFab Pvt. Ltd.",
+                "METACHEM MANUFACTURING COMPANY PRIVATE LIMITED", "PRET MODE"
+            ],
+            result.India.Select(row => row.Name).ToArray());
+        Assert.Equal(6, result.Overseas.Count);
+
+        var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM"));
+        Assert.Equal("PUNE", metachem.BranchName);
+        Assert.Equal("147/1 & 2, SHEMBEKAR INDUSTRIAL AREA", metachem.Cells["BranchAddress1"]);
+        Assert.Equal("CHINCHWAD ,PUNE ,", metachem.Cells["BranchAddress2"]);
+        Assert.Equal("MAHARASHTRA, 411019", metachem.Cells["BranchAddress3"]);
+        Assert.Equal("MAHARASHTRA", metachem.Cells["State"]);
+        Assert.Equal("India", metachem.Cells["Country"]);
+        Assert.Equal("411019", metachem.Cells["PostalCode"]);
+        Assert.Equal("export@metachem.in", metachem.Cells["EMailID"]);
+        Assert.Equal("NOMINATION SALES", metachem.Cells["Sales Person"]);
+        Assert.Equal("yes", metachem.Cells["IsShipper"]);
+        Assert.Equal("yes", metachem.Cells["IsServiceProvider"]);
+        Assert.Equal("27AAACC7064K1ZH", metachem.Cells["REG-GSTIN"]);
+        Assert.Equal("AAACC7064K", metachem.Cells["REG-PAN NO"]);
+        Assert.Equal("riya@tnpsfl.com", metachem.RequesterEmail);
+
+        Assert.Equal("MUMBAI", result.Held.Single(row => row.Name == "LILARAM GOBINDRAM").City);
+        Assert.Contains(result.Held, row => row.Name == "LILARAM GOBINDRAM" && row.Reason.Contains("GSTIN"));
+        Assert.Contains(result.Held, row => row.Name == "JTL INDUSTRIES LTD" && row.Reason.Contains("PAN"));
+        Assert.Contains(result.Held, row => row.Name == "SEROJET FREIGHT (I) PRIVATE LIMITED" && row.Reason.Contains("GUJARAT"));
+        Assert.Contains(result.Held, row => row.Name == "TRIDENT LIMITED");
+    }
+
     private static Dictionary<string, string> Row(params (string Column, string Value)[] cells) =>
         cells.ToDictionary(cell => cell.Column, cell => cell.Value, StringComparer.OrdinalIgnoreCase);
 

@@ -47,13 +47,22 @@ public sealed class OrganisationConverter
 
     private static readonly Regex GstinPattern = new("^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$", RegexOptions.Compiled);
 
+    // When the requested organisation is to be invoiced (column I = Yes), the form stores
+    // its details in J..U and the official email in AI, leaving W..AG blank.
+    private static readonly (string Main, string Invoiced)[] InvoicedSectionColumns =
+    [
+        ("W", "J"), ("X", "K"), ("Y", "N"), ("Z", "O"), ("AA", "P"), ("AB", "Q"),
+        ("AC", "R"), ("AD", "S"), ("AE", "T"), ("AF", "U"), ("AG", "AI")
+    ];
+
     public ConversionResult Convert(IReadOnlyList<ClientRow> rows, MappingCatalog catalog)
     {
         var result = new ConversionResult();
         var seenNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var row in rows)
+        foreach (var sourceRow in rows)
         {
+            var row = UseInvoicedSectionWhenMainIsBlank(sourceRow);
             var name = First(row, "W", "J");
             var city = Value(row, "AB");
             var state = Value(row, "AC");
@@ -308,6 +317,30 @@ public sealed class OrganisationConverter
 
         var key = MappingSeed.NormalizeAlias(raw);
         return catalog.CountryAliases.TryGetValue(key, out var canonical) ? canonical : null;
+    }
+
+    private static ClientRow UseInvoicedSectionWhenMainIsBlank(ClientRow row)
+    {
+        if (Value(row, "W").Length > 0 || Value(row, "J").Length == 0)
+        {
+            return row;
+        }
+
+        var cells = new Dictionary<string, string>(row.Cells, StringComparer.OrdinalIgnoreCase);
+        foreach (var (main, invoiced) in InvoicedSectionColumns)
+        {
+            var value = Value(row, invoiced);
+            if (value.Length > 0)
+            {
+                cells[main] = value;
+            }
+            else
+            {
+                cells.Remove(main);
+            }
+        }
+
+        return row with { Cells = cells };
     }
 
     private static string Value(ClientRow row, string? column)
