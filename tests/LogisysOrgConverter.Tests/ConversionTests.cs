@@ -170,6 +170,27 @@ public class ConversionTests
         Assert.Contains(result.Held, row => row.Name == "TRIDENT LIMITED");
     }
 
+    [Fact]
+    public void Repeated_organisation_takes_the_address_of_the_latest_request_by_timestamp()
+    {
+        using var stream = BuildSheet(
+            Row(("A", "26/10/2026 09:00:00"), ("W", "Acme Exports"), ("X", "Shipper"), ("Y", "New Plot 9"), ("AB", "Pune"), ("AC", "Maharashtra"), ("AD", "India")),
+            Row(("A", "20/10/2026 09:00:00"), ("W", "ACME EXPORTS."), ("X", "Consignee"), ("Y", "Old Plot 1"), ("AB", "Nashik"), ("AC", "Maharashtra"), ("AD", "India")),
+            Row(("A", "27/10/2026 09:00:00"), ("W", "Acme  Exports"), ("X", "Shipper"), ("AB", "."), ("AD", ".")));
+
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+
+        var acme = Assert.Single(result.India);
+        Assert.Equal(2, acme.SourceRowNumber);
+        Assert.Equal("Pune", acme.City);
+        Assert.Equal("New Plot 9", acme.Cells["BranchAddress1"]);
+        Assert.Equal("yes", acme.Cells["ISConsignee"]);
+        Assert.Null(acme.Note);
+        Assert.Equal([3, 4], result.Merged.Select(row => row.SourceRowNumber).ToArray());
+        Assert.All(result.Merged, row => Assert.False(row.AddressUsed));
+        Assert.Empty(result.Held);
+    }
+
     private static Dictionary<string, string> Row(params (string Column, string Value)[] cells) =>
         cells.ToDictionary(cell => cell.Column, cell => cell.Value, StringComparer.OrdinalIgnoreCase);
 

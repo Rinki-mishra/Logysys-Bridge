@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace LogisysOrgConverter.Conversion;
@@ -335,71 +336,108 @@ public sealed class OrganisationConverter
     }
 
     // Rows naming the same organisation (ignoring case, spaces and punctuation) become one
-    // organisation: the first row is kept, and a later row's address replaces the earlier one.
+    // organisation, created once from the first row in the sheet. Its address comes from the
+    // latest request (column A timestamp) that has a real city and country.
     private static List<(ClientRow Row, int? AddressFromRow)> MergeDuplicates(
         IEnumerable<ClientRow> rows,
         List<MergedOrganisation> merged)
     {
-        var organisations = new List<(ClientRow Row, int? AddressFromRow)>();
+        var groups = new List<List<ClientRow>>();
         var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
-        var duplicates = new List<(ClientRow Row, int Index)>();
 
         foreach (var row in rows)
         {
             var key = NameKey(First(row, "W", "J"));
-            if (key.Length == 0 || !indexByName.TryGetValue(key, out var index))
+            if (key.Length > 0 && indexByName.TryGetValue(key, out var index))
             {
-                if (key.Length > 0)
-                {
-                    indexByName[key] = organisations.Count;
-                }
-
-                organisations.Add((row, null));
+                groups[index].Add(row);
                 continue;
             }
 
-            var (kept, addressFromRow) = organisations[index];
-            var hasAddress = HasText(Value(row, "AB")) && HasText(Value(row, "AD"));
-            organisations[index] = (MergeInto(kept, row, hasAddress), hasAddress ? row.RowNumber : addressFromRow);
-            duplicates.Add((row, index));
+            if (key.Length > 0)
+            {
+                indexByName[key] = groups.Count;
+            }
+
+            groups.Add([row]);
         }
 
-        foreach (var (row, index) in duplicates)
+        var organisations = new List<(ClientRow Row, int? AddressFromRow)>();
+        foreach (var group in groups)
         {
-            var (kept, addressFromRow) = organisations[index];
-            merged.Add(new MergedOrganisation(
-                row.RowNumber,
-                First(row, "W", "J"),
-                kept.RowNumber,
-                addressFromRow == row.RowNumber,
-                Value(row, "AB"),
-                Value(row, "AD"),
-                CleanEmail(Value(row, "B")),
-                Value(row, "D")));
+            var kept = group[0];
+            if (group.Count == 1)
+            {
+                organisations.Add((kept, null));
+                continue;
+            }
+
+            var latestAddress = group
+                .Where(row => HasText(Value(row, "AB")) && HasText(Value(row, "AD")))
+                .OrderBy(RequestedAt)
+                .ThenBy(row => row.RowNumber)
+                .LastOrDefault();
+
+            var combined = group.Skip(1).Aggregate(kept, MergeInto);
+            int? addressFromRow = null;
+            if (latestAddress is not null && latestAddress.RowNumber != kept.RowNumber)
+            {
+                combined = WithAddressFrom(combined, latestAddress);
+                addressFromRow = latestAddress.RowNumber;
+            }
+
+            organisations.Add((combined, addressFromRow));
+            foreach (var row in group.Skip(1))
+            {
+                merged.Add(new MergedOrganisation(
+                    row.RowNumber,
+                    First(row, "W", "J"),
+                    kept.RowNumber,
+                    row.RowNumber == addressFromRow,
+                    Value(row, "AB"),
+                    Value(row, "AD"),
+                    CleanEmail(Value(row, "B")),
+                    Value(row, "D")));
+            }
         }
 
         return organisations;
     }
 
-    private static ClientRow MergeInto(ClientRow kept, ClientRow later, bool takeAddress)
+    private static DateTime RequestedAt(ClientRow row)
     {
-        var cells = new Dictionary<string, string>(kept.Cells, StringComparer.OrdinalIgnoreCase);
-
-        if (takeAddress)
+        var text = Value(row, "A");
+        if (DateTime.TryParseExact(text, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+            || DateTime.TryParse(text, CultureInfo.GetCultureInfo("en-IN"), DateTimeStyles.None, out at))
         {
-            foreach (var column in AddressColumns)
+            return at;
+        }
+
+        return DateTime.MinValue;
+    }
+
+    private static ClientRow WithAddressFrom(ClientRow target, ClientRow source)
+    {
+        var cells = new Dictionary<string, string>(target.Cells, StringComparer.OrdinalIgnoreCase);
+        foreach (var column in AddressColumns)
+        {
+            var value = Value(source, column);
+            if (value.Length > 0)
             {
-                var value = Value(later, column);
-                if (value.Length > 0)
-                {
-                    cells[column] = value;
-                }
-                else
-                {
-                    cells.Remove(column);
-                }
+                cells[column] = value;
+            }
+            else
+            {
+                cells.Remove(column);
             }
         }
+
+        return target with { Cells = cells };
+    }
+
+    private static ClientRow MergeInto(ClientRow kept, ClientRow later)
+    {
+        var cells = new Dictionary<string, string>(kept.Cells, StringComparer.OrdinalIgnoreCase);
 
         var types = ReadTypes(Value(kept, "X")).Concat(ReadTypes(Value(later, "X")))
             .Distinct(StringComparer.OrdinalIgnoreCase)
