@@ -7,22 +7,25 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
-        var retired = MappingSeed.RetiredTargetHeaders.ToList();
+        var retired = MappingSeed.RetiredTargetHeaders
+            .Concat(["Cash On Delivery"])
+            .ToList();
         db.FieldMaps.RemoveRange(await db.FieldMaps.Where(map => retired.Contains(map.TargetHeader)).ToListAsync(cancellationToken));
 
         if (!await db.FieldMaps.AnyAsync(cancellationToken))
         {
-            db.FieldMaps.AddRange(MappingSeed.FieldMaps.Select(map => new FieldMap
-            {
-                TemplateCode = map.TemplateCode,
-                TargetHeader = map.TargetHeader,
-                Transform = map.Transform,
-                SourceColumn = map.SourceColumn,
-                ConstantValue = map.ConstantValue,
-                FlagKey = map.FlagKey,
-                FallbackColumn = map.FallbackColumn,
-                SortOrder = map.SortOrder
-            }));
+            db.FieldMaps.AddRange(MappingSeed.FieldMaps.Select(ToFieldMap));
+        }
+        else
+        {
+            // Field maps added to the seed later (for example IsCashOnDelivery) are filled in.
+            var saved = (await db.FieldMaps
+                    .Select(map => map.TemplateCode + "\n" + map.TargetHeader)
+                    .ToListAsync(cancellationToken))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            db.FieldMaps.AddRange(MappingSeed.FieldMaps
+                .Where(map => saved.Add(map.TemplateCode + "\n" + map.TargetHeader))
+                .Select(ToFieldMap));
         }
 
         // Countries added to the seed later are filled in; spellings already saved (and renamed) are left alone.
@@ -51,4 +54,16 @@ public static class DbInitializer
 
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    private static FieldMap ToFieldMap(FieldMapRule map) => new()
+    {
+        TemplateCode = map.TemplateCode,
+        TargetHeader = map.TargetHeader,
+        Transform = map.Transform,
+        SourceColumn = map.SourceColumn,
+        ConstantValue = map.ConstantValue,
+        FlagKey = map.FlagKey,
+        FallbackColumn = map.FallbackColumn,
+        SortOrder = map.SortOrder
+    };
 }

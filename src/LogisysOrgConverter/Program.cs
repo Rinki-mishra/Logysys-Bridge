@@ -21,6 +21,22 @@ builder.Services.AddSingleton(new TemplatePaths
 builder.Services.AddScoped<ConversionStore>();
 builder.Services.AddScoped<ExistingOrganisationStore>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
+builder.Services.Configure<MailboxOptions>(builder.Configuration.GetSection(MailboxOptions.Section));
+builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.Section));
+builder.Services.Configure<GoogleVisitorOptions>(builder.Configuration.GetSection(GoogleVisitorOptions.Section));
+builder.Services.AddHttpClient(FormMailbox.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(40));
+builder.Services.AddHttpClient(GoogleSheets.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(90));
+builder.Services.AddSingleton<FormMailbox>();
+builder.Services.AddSingleton<GoogleBrowserSession>();
+builder.Services.AddSingleton<GoogleSheets>();
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(20);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+});
 builder.Services.AddSingleton<MailDelivery>();
 builder.Services.AddScoped<NotificationStore>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
@@ -39,6 +55,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseSession();
 app.MapRazorPages();
 app.Run();
 

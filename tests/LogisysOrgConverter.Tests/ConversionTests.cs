@@ -51,7 +51,9 @@ public class ConversionTests
         Assert.Equal("India", lavish.Cells["Country"]);
         Assert.Equal("332001", lavish.Cells["PostalCode"]);
         Assert.Equal("yes", lavish.Cells["IsServiceProvider"]);
+        Assert.Equal("yes", lavish.Cells["IsCashOnDelivery"]);
         Assert.Equal("accts@lavishglobal.sg", lavish.Cells["EMailID"]);
+        Assert.Equal("yes", result.Overseas[0].Cells["IsCashOnDelivery"]);
 
         Assert.Contains("looks like a street", result.Held[0].Reason);
         Assert.Contains("both \"CARY\"", result.Held[1].Reason);
@@ -72,11 +74,15 @@ public class ConversionTests
         Assert.Equal(indiaHeaders, Headers(india));
         Assert.Equal(overseasHeaders, Headers(overseas));
         Assert.Equal("LAVISH GLOBAL LOGISTICS INDIA PRIVATE LIMITED", Cell(india, 2, "Name"));
+        Assert.Equal("yes", Cell(india, 2, "IsCashOnDelivery"));
+        Assert.Contains("IsCashOnDelivery", indiaHeaders);
         Assert.True(string.IsNullOrEmpty(Cell(india, 3, "Name")));
         Assert.DoesNotContain("devesh", string.Join(' ', Names(india)), StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Terra Granite", Cell(overseas, 2, "Name"));
         Assert.Equal("Houston", Cell(overseas, 2, "BranchName"));
         Assert.Equal("yes", Cell(overseas, 2, "ISConsignee"));
+        Assert.Equal("yes", Cell(overseas, 2, "IsCashOnDelivery"));
+        Assert.Contains("IsCashOnDelivery", overseasHeaders);
         Assert.Equal(string.Empty, Cell(overseas, 2, "EMailID"));
         Assert.Equal("georgina@createart.com.au", Cell(overseas, 3, "EMailID"));
         Assert.Equal(string.Empty, Cell(overseas, 3, "Notification Email"));

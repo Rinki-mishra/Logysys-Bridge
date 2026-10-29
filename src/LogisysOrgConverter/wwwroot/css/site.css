@@ -135,6 +135,21 @@ button:hover, .button:hover { background: var(--green-dark); }
     cursor: not-allowed;
 }
 
+.setup { margin: 1rem 0 1.2rem; padding-left: 1.2rem; max-width: 68ch; }
+
+.setup li { margin: 0.35rem 0; }
+
+.connect-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: center;
+    margin: 1rem 0 0;
+    color: var(--muted);
+}
+
+.table-wrap form { margin: 0 0 0.35rem; }
+
 .steps {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

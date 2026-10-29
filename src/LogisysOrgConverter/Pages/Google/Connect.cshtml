@@ -1,0 +1,20 @@
+@page
+@model LogisysOrgConverter.Pages.Google.ConnectModel
+@{
+    ViewData["Title"] = "Connect Google";
+}
+
+<section class="panel">
+    <p class="eyebrow">Google Form</p>
+    <h1>Connect the Google account that can open the response sheet.</h1>
+    <p class="lead">
+        The mailbox can see the form notice. The answers are in a private Google spreadsheet, so this app needs a one-time Google sign-in for that account.
+    </p>
+    <ol class="setup">
+        <li>In Google Cloud, create an OAuth client of type Web application.</li>
+        <li>Add this redirect URI: <code>@Model.RedirectUri</code></li>
+        <li>Enable the Google Drive API and the Google Forms API.</li>
+        <li>Put the client id and client secret in <code>appsettings.Local.json</code> under <code>Google</code>, then restart the app and open this page again.</li>
+    </ol>
+    <p><a class="text-link" asp-page="/Index">Back to the form list</a></p>
+</section>

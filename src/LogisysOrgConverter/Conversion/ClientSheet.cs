@@ -20,27 +20,26 @@ public static class ClientSheetReader
 {
     public static IReadOnlyList<ClientRow> Read(Stream stream)
     {
+        if (stream.CanSeek)
+        {
+            stream.Position = 0;
+        }
+
+        using var fixedStream = GoogleWorkbook.OpenableCopy(stream);
         XLWorkbook workbook;
         try
         {
-            workbook = new XLWorkbook(stream);
+            workbook = new XLWorkbook(fixedStream);
         }
         catch (Exception ex)
         {
-            throw new ClientSheetException("The file could not be opened as an Excel workbook.", ex);
+            var detail = string.IsNullOrWhiteSpace(ex.Message) ? string.Empty : " " + ex.Message.Split('\n')[0].Trim();
+            throw new ClientSheetException("The file could not be opened as an Excel workbook." + detail, ex);
         }
 
         using (workbook)
         {
-            var sheet = workbook.Worksheets.FirstOrDefault()
-                ?? throw new ClientSheetException("The workbook has no sheets.");
-
-            var nameHeader = CellText(sheet.Cell(1, ColumnLetters.Index("W")));
-            if (!nameHeader.Contains("company", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new ClientSheetException(
-                    "This workbook does not look like the client organisation sheet. Column W should be the company name.");
-            }
+            var sheet = OrganisationSheet(workbook);
 
             var lastRow = sheet.LastRowUsed()?.RowNumber() ?? 1;
             var lastColumn = sheet.LastColumnUsed()?.ColumnNumber() ?? 1;
@@ -73,6 +72,38 @@ public static class ClientSheetReader
 
             return rows;
         }
+    }
+
+    private static IXLWorksheet OrganisationSheet(XLWorkbook workbook)
+    {
+        IXLWorksheet? responses = null;
+        IXLWorksheet? match = null;
+        foreach (var sheet in workbook.Worksheets)
+        {
+            var header = CellText(sheet.Cell(1, ColumnLetters.Index("W")));
+            if (!header.Contains("company", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var name = sheet.Name;
+            if (name.Contains("Form Responses 1", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("Form_Responses1", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Form Responses", StringComparison.OrdinalIgnoreCase))
+            {
+                return sheet;
+            }
+
+            if (name.Contains("response", StringComparison.OrdinalIgnoreCase))
+            {
+                responses ??= sheet;
+            }
+
+            match ??= sheet;
+        }
+
+        return responses ?? match ?? throw new ClientSheetException(
+            "This workbook does not look like the client organisation sheet. Column W should be the company name.");
     }
 
     private static string CellText(IXLCell cell)

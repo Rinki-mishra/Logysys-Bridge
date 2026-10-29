@@ -59,6 +59,9 @@ public static class MappingSeed
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-GSTIN", "Registration", "AO", 220));
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-BIN No", "Registration", "AW", 230));
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-IE Code No", "Registration", "AQ", 240));
+        // Softlink org import uses Is* headers for Account Info checkboxes (same as IsGlobal).
+        maps.Add(Map(MappingCatalog.IndiaTemplate, "IsCashOnDelivery", "Constant", null, 250, "yes"));
+        maps.Add(Map(MappingCatalog.OverseasTemplate, "IsCashOnDelivery", "Constant", null, 250, "yes"));
         return maps;
     }
 

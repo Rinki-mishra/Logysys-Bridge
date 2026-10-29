@@ -9,3 +9,5 @@ node_modules/
 .DS_Store
 OutgoingMail/
 appsettings.Local.json
+google-token.json
+GoogleSession/
