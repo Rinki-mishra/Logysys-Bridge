@@ -104,6 +104,17 @@ public sealed class ConversionStore
             run.Rows.Add(row);
         }
 
+        foreach (var agent in result.AwaitingApproval)
+        {
+            var row = ToRow(run.Id, agent);
+            row.Status = RowStatuses.Approval;
+            row.Template = RowTemplates.OverseasAgent;
+            row.Reason = HoldReason.AgentNeedsApproval(_email.AgentApprover);
+            row.ApprovalDetails = agent.Note;
+            row.CellsJson = JsonSerializer.Serialize(agent.Cells);
+            run.Rows.Add(row);
+        }
+
         foreach (var held in result.Held)
         {
             run.Rows.Add(new ConversionRunRow
