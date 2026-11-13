@@ -1,16 +1,23 @@
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
+using LogisysOrgConverter.GoogleDrive;
+using LogisysOrgConverter.Logisys;
 using LogisysOrgConverter.Notifications;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
+builder.Services.AddRequestTimeouts();
 builder.Services.AddRazorPages();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("Logisys"),
-        sql => sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(2), null)));
+        sql =>
+        {
+            sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(2), null);
+            sql.CommandTimeout(120);
+        }));
 builder.Services.AddSingleton<OrganisationConverter>();
 builder.Services.AddSingleton<TemplateWorkbookWriter>();
 builder.Services.AddSingleton(new TemplatePaths
@@ -22,8 +29,10 @@ builder.Services.AddScoped<ConversionStore>();
 builder.Services.AddScoped<ExistingOrganisationStore>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
 builder.Services.Configure<MailboxOptions>(builder.Configuration.GetSection(MailboxOptions.Section));
-builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.Section));
-builder.Services.Configure<GoogleVisitorOptions>(builder.Configuration.GetSection(GoogleVisitorOptions.Section));
+builder.Services.Configure<LogisysOrgConverter.Notifications.GoogleOptions>(
+    builder.Configuration.GetSection(LogisysOrgConverter.Notifications.GoogleOptions.Section));
+builder.Services.Configure<LogisysOrgConverter.Notifications.GoogleVisitorOptions>(
+    builder.Configuration.GetSection(LogisysOrgConverter.Notifications.GoogleVisitorOptions.Section));
 builder.Services.AddHttpClient(FormMailbox.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(40));
 builder.Services.AddHttpClient(GoogleSheets.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(90));
 builder.Services.AddSingleton<FormMailbox>();
@@ -39,6 +48,24 @@ builder.Services.AddSession(options =>
 });
 builder.Services.AddSingleton<MailDelivery>();
 builder.Services.AddScoped<NotificationStore>();
+builder.Services.Configure<LogisysOrgConverter.GoogleDrive.GoogleOptions>(
+    builder.Configuration.GetSection(LogisysOrgConverter.GoogleDrive.GoogleOptions.Section));
+builder.Services.AddHttpClient(GoogleDriveAccess.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddSingleton<GoogleDriveAccess>();
+builder.Services.Configure<MicrosoftOptions>(builder.Configuration.GetSection(MicrosoftOptions.Section));
+builder.Services.Configure<LogisysOrgConverter.GoogleDrive.GoogleVisitorOptions>(
+    builder.Configuration.GetSection(LogisysOrgConverter.GoogleDrive.GoogleVisitorOptions.Section));
+builder.Services.AddHttpClient(OutlookCodeReader.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddSingleton<OutlookCodeReader>();
+builder.Services.AddSingleton<GoogleVisitorAccess>();
+builder.Services.AddScoped<GstCertificateReader>();
+builder.Services.Configure<LogisysOptions>(builder.Configuration.GetSection(LogisysOptions.Section));
+builder.Services.AddSingleton<LogisysBrowserSession>();
+builder.Services.AddScoped<OrganisationNoteUploader>();
+builder.Services.AddScoped<OrganisationCodMarker>();
+builder.Services.AddScoped<OrganisationLedgerLinker>();
+builder.Services.AddScoped<OrganisationImportUploader>();
+builder.Services.AddScoped<SoftlinkOrganisationFinisher>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 20 * 1024 * 1024;
@@ -55,6 +82,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRequestTimeouts();
 app.UseSession();
 app.MapRazorPages();
 app.Run();

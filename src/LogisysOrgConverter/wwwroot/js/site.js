@@ -51,3 +51,60 @@ document.querySelectorAll("[data-convert-form]").forEach((form) => {
         button.textContent = "Creating the Logi-Sys files…";
     });
 });
+
+document.querySelectorAll("[data-attach-notes]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+        const button = event.currentTarget.querySelector("button[type=submit]");
+        if (!button) {
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Attaching… downloading Drive files, then Softlink Notes — leave Edge open";
+    });
+});
+
+document.querySelectorAll("[data-upload-orgs]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+        const button = event.currentTarget.querySelector("button[type=submit]");
+        if (!button) {
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Uploading… Softlink Organizations → ⋮ → Upload Organizations — leave Edge open";
+    });
+});
+
+document.querySelectorAll("[data-result-tabs]").forEach((tabs) => {
+    const root = tabs.closest("section") || tabs.parentElement;
+    const buttons = [...tabs.querySelectorAll("[data-result-tab]")];
+    const panels = root ? [...root.querySelectorAll("[data-result-panel]")] : [];
+
+    const show = (name) => {
+        buttons.forEach((button) => {
+            button.setAttribute("aria-pressed", button.dataset.resultTab === name ? "true" : "false");
+        });
+        panels.forEach((panel) => {
+            panel.hidden = panel.dataset.resultPanel !== name;
+        });
+    };
+
+    buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const name = button.dataset.resultTab;
+            const alreadyOpen = button.getAttribute("aria-pressed") === "true";
+            if (alreadyOpen) {
+                buttons.forEach((item) => item.setAttribute("aria-pressed", "false"));
+                panels.forEach((panel) => {
+                    panel.hidden = true;
+                });
+                return;
+            }
+
+            show(name);
+        });
+    });
+
+    // Do not auto-open — user clicks a button to reveal the list.
+});

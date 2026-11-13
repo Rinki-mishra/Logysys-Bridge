@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
+using LogisysOrgConverter.GoogleDrive;
 using LogisysOrgConverter.Notifications;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -12,13 +13,24 @@ public partial class IndexModel : PageModel
     private readonly ConversionStore _store;
     private readonly FormMailbox _mailbox;
     private readonly GoogleSheets _google;
+    private readonly GoogleDriveAccess _drive;
+    private readonly GoogleVisitorAccess _visitor;
 
-    public IndexModel(ConversionStore store, FormMailbox mailbox, GoogleSheets google)
+    public IndexModel(
+        ConversionStore store,
+        FormMailbox mailbox,
+        GoogleSheets google,
+        GoogleDriveAccess drive,
+        GoogleVisitorAccess visitor)
     {
         _store = store;
         _mailbox = mailbox;
         _google = google;
+        _drive = drive;
+        _visitor = visitor;
     }
+
+    public string? DriveAccount { get; private set; }
 
     [BindProperty]
     public IFormFile? ClientFile { get; set; }
@@ -48,10 +60,12 @@ public partial class IndexModel : PageModel
         }
 
         await LoadMailboxAsync(cancellationToken);
+        await LoadDriveAccountAsync(cancellationToken);
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
+        await LoadDriveAccountAsync(cancellationToken);
         if (ClientFile is null || ClientFile.Length == 0)
         {
             ErrorMessage = "Choose the client workbook first.";
@@ -114,12 +128,13 @@ public partial class IndexModel : PageModel
         {
             ErrorMessage = "That form could not be read.";
             await LoadMailboxAsync(cancellationToken);
+            await LoadDriveAccountAsync(cancellationToken);
             return Page();
         }
 
         try
         {
-            // Form edit links need owner access. riya@awgmen.com has the shared response sheet instead.
+            // Form edit links need owner access. The shared response sheet is used instead.
             FormNotice notice;
             byte[] bytes;
             if (kind == FormSourceKinds.Form)
@@ -152,6 +167,7 @@ public partial class IndexModel : PageModel
         {
             ErrorMessage = ex.Message;
             await LoadMailboxAsync(cancellationToken);
+            await LoadDriveAccountAsync(cancellationToken);
             return Page();
         }
     }
@@ -184,8 +200,24 @@ public partial class IndexModel : PageModel
         MailboxAddress = _mailbox.Address;
         GoogleConnected = _google.IsReady;
         var listing = await _mailbox.ListAsync(cancellationToken);
-        Notices = listing.Notices;
+        // Only shared response spreadsheets — hide Google Form edit notices (e.g. “Form responses”).
+        Notices = listing.Notices
+            .Where(notice => notice.Kind == FormSourceKinds.Sheet)
+            .ToList();
         MailboxError = listing.Error;
+    }
+
+    private async Task LoadDriveAccountAsync(CancellationToken cancellationToken)
+    {
+        if (_drive.IsConfigured)
+        {
+            DriveAccount = (await _drive.GetConnectionAsync(cancellationToken))?.Email;
+        }
+
+        if (DriveAccount is null && _visitor.IsConfigured)
+        {
+            DriveAccount = $"{_visitor.Mailbox} (visitor access with the emailed code)";
+        }
     }
 
     [GeneratedRegex("^[A-Za-z0-9_-]{8,128}$")]

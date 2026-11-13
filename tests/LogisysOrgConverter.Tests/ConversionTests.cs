@@ -16,10 +16,15 @@ public class ConversionTests
         var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
 
         Assert.Equal(
-            ["Terra Granite", "CreateART", "SUSSMAN-AUTOMATIC CORPORATION", "FULLY ORGANIC LLC"],
+            ["Terra Granite", "SUSSMAN-AUTOMATIC CORPORATION", "FULLY ORGANIC LLC", "ZENAVIS LLC"],
             result.Overseas.Select(row => row.Name).ToArray());
+        Assert.Equal(["CreateART"], result.AwaitingApproval.Select(row => row.Name).ToArray());
         Assert.Equal(["LAVISH GLOBAL LOGISTICS INDIA PRIVATE LIMITED"], result.India.Select(row => row.Name).ToArray());
-        Assert.Equal(["MAUSER USA LLC - MASON", "ZENAVIS LLC"], result.Held.Select(row => row.Name).ToArray());
+        Assert.Equal(["MAUSER USA LLC - MASON"], result.Held.Select(row => row.Name).ToArray());
+        var zenavis = result.Overseas.Single(row => row.Name == "ZENAVIS LLC");
+        Assert.Equal("CARY", zenavis.City);
+        Assert.Equal("North Carolina", zenavis.State);
+        Assert.Contains("State set to North Carolina", zenavis.Note);
 
         var terra = result.Overseas[0];
         Assert.Equal("Houston", terra.BranchName);
@@ -33,7 +38,7 @@ public class ConversionTests
         Assert.False(terra.Cells.ContainsKey("IsAgent"));
         Assert.False(terra.Cells.ContainsKey("EMailID"));
 
-        var createArt = result.Overseas[1];
+        var createArt = result.AwaitingApproval[0];
         Assert.Equal("yes", createArt.Cells["IsAgent"]);
         Assert.Equal("Queensland (QLD)", createArt.Cells["State"]);
         Assert.Equal("Australia", createArt.Cells["Country"]);
@@ -41,9 +46,9 @@ public class ConversionTests
         Assert.Equal("georgina@createart.com.au", createArt.Cells["EMailID"]);
         Assert.False(createArt.Cells.ContainsKey("Notification Email"));
 
-        Assert.Equal("NY", result.Overseas[2].Cells["State"]);
-        Assert.Equal("FLORIDA", result.Overseas[3].Cells["State"]);
-        Assert.Equal("operation1@fullyorganicllc.com", result.Overseas[3].Cells["EMailID"]);
+        Assert.Equal("NY", result.Overseas[1].Cells["State"]);
+        Assert.Equal("FLORIDA", result.Overseas[2].Cells["State"]);
+        Assert.Equal("operation1@fullyorganicllc.com", result.Overseas[2].Cells["EMailID"]);
 
         var lavish = result.India[0];
         Assert.Equal("Sikar", lavish.BranchName);
@@ -51,12 +56,11 @@ public class ConversionTests
         Assert.Equal("India", lavish.Cells["Country"]);
         Assert.Equal("332001", lavish.Cells["PostalCode"]);
         Assert.Equal("yes", lavish.Cells["IsServiceProvider"]);
-        Assert.Equal("yes", lavish.Cells["IsCashOnDelivery"]);
+        Assert.Equal("Y", lavish.Cells["Cash On Delivery"]);
         Assert.Equal("accts@lavishglobal.sg", lavish.Cells["EMailID"]);
-        Assert.Equal("yes", result.Overseas[0].Cells["IsCashOnDelivery"]);
+        Assert.Equal("Y", result.Overseas[0].Cells["Cash On Delivery"]);
 
-        Assert.Contains("looks like a street", result.Held[0].Reason);
-        Assert.Contains("both \"CARY\"", result.Held[1].Reason);
+        Assert.Contains("looks like a street", Assert.Single(result.Held).Reason);
     }
 
     [Fact]
@@ -74,21 +78,24 @@ public class ConversionTests
         Assert.Equal(indiaHeaders, Headers(india));
         Assert.Equal(overseasHeaders, Headers(overseas));
         Assert.Equal("LAVISH GLOBAL LOGISTICS INDIA PRIVATE LIMITED", Cell(india, 2, "Name"));
-        Assert.Equal("yes", Cell(india, 2, "IsCashOnDelivery"));
-        Assert.Contains("IsCashOnDelivery", indiaHeaders);
+        Assert.Equal("Y", Cell(india, 2, "Cash On Delivery"));
+        Assert.Contains("Cash On Delivery", indiaHeaders);
         Assert.True(string.IsNullOrEmpty(Cell(india, 3, "Name")));
         Assert.DoesNotContain("devesh", string.Join(' ', Names(india)), StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Terra Granite", Cell(overseas, 2, "Name"));
         Assert.Equal("Houston", Cell(overseas, 2, "BranchName"));
         Assert.Equal("yes", Cell(overseas, 2, "ISConsignee"));
-        Assert.Equal("yes", Cell(overseas, 2, "IsCashOnDelivery"));
-        Assert.Contains("IsCashOnDelivery", overseasHeaders);
+        Assert.Equal("Y", Cell(overseas, 2, "Cash On Delivery"));
+        Assert.Contains("Cash On Delivery", overseasHeaders);
         Assert.Equal(string.Empty, Cell(overseas, 2, "EMailID"));
-        Assert.Equal("georgina@createart.com.au", Cell(overseas, 3, "EMailID"));
         Assert.Equal(string.Empty, Cell(overseas, 3, "Notification Email"));
         Assert.Equal(string.Empty, Cell(india, 2, "Notification Email"));
-        Assert.Equal("FULLY ORGANIC LLC", Cell(overseas, 5, "Name"));
-        Assert.Equal(4, Names(overseas).Count(name => name.Length > 0));
+        Assert.Equal("FULLY ORGANIC LLC", Cell(overseas, 4, "Name"));
+        Assert.Equal(3, Names(overseas).Count(name => name.Length > 0));
+
+        var agents = Open(writer.Write(OverseasTemplate, result.AwaitingApproval));
+        Assert.Equal("CreateART", Cell(agents, 2, "Name"));
+        Assert.Equal("georgina@createart.com.au", Cell(agents, 2, "EMailID"));
     }
 
     [Fact]
@@ -140,7 +147,10 @@ public class ConversionTests
                 "METACHEM MANUFACTURING COMPANY PRIVATE LIMITED", "PRET MODE"
             ],
             result.India.Select(row => row.Name).ToArray());
-        Assert.Equal(11, result.Overseas.Count);
+        Assert.Equal(10, result.Overseas.Count);
+        var blueShipping = Assert.Single(result.AwaitingApproval);
+        Assert.Equal("SARL BLUE SHIPPING SERVICES", blueShipping.Name);
+        Assert.Contains("Type: Overseas Agent", blueShipping.Note);
 
         var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM"));
         Assert.Equal("PUNE", metachem.BranchName);
@@ -188,7 +198,7 @@ public class ConversionTests
         Assert.False(milsped.Cells.ContainsKey("State"));
         Assert.Equal(("ROMA", "Italy"), (result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).City, result.Overseas.Single(row => row.Name.StartsWith("SAVINO")).Country));
         Assert.Equal("FROSINONE", result.Overseas.Single(row => row.Name.StartsWith("KLOPMAN")).City);
-        Assert.Equal("Algeria", result.Overseas.Single(row => row.Name.StartsWith("SARL BLUE")).Country);
+        Assert.Equal("Algeria", result.AwaitingApproval.Single(row => row.Name.StartsWith("SARL BLUE")).Country);
     }
 
     [Fact]
@@ -302,16 +312,227 @@ public class ConversionTests
 
         var metachem = result.India.Single(row => row.Name.StartsWith("METACHEM")).Ledger!;
         Assert.Equal("India", metachem.Category);
-        Assert.Equal(["India receivable – shipper, consignee", "India payable – agent, carrier, service"], metachem.Sections.Select(section => section.Title).ToArray());
+        var section = Assert.Single(metachem.Sections);
+        Assert.Equal("India receivable – shipper, consignee", section.Title);
+        Assert.Equal(
+            ["KYC in SAR format on the company letterhead", "PAN document", "TAN document", "GST document"],
+            section.Items.Select(item => item.Label).ToArray());
         Assert.Equal(0, metachem.MissingCount);
-        Assert.Equal(LedgerItemStates.Provided, metachem.Sections[0].Items.Single(item => item.Label == "TAN").State);
+        Assert.Equal("Ready for ledger link.", metachem.Summary);
 
         var neoPoly = result.India.Single(row => row.Name.StartsWith("NEO POLY")).Ledger!;
-        Assert.Equal(LedgerItemStates.Missing, neoPoly.Sections[0].Items.Single(item => item.Label == "TAN").State);
-        Assert.Contains(neoPoly.Sections[0].Notes, note => note.Contains("TDS challan"));
-        Assert.Equal("1 required document is missing.", neoPoly.Summary);
+        Assert.Equal(LedgerItemStates.Missing, neoPoly.Sections[0].Items.Single(item => item.Label == "TAN document").State);
+        Assert.Contains(neoPoly.Sections[0].Items, item => item.Label.StartsWith("TDS challan") && item.State == LedgerItemStates.Collect);
+        Assert.Equal("3 required documents are missing.", neoPoly.Summary);
+
+        var pret = result.India.Single(row => row.Name.StartsWith("PRET MODE")).Ledger!;
+        Assert.Equal(["TAN document"], pret.Sections[0].Items.Where(item => item.State == LedgerItemStates.Missing).Select(item => item.Label).ToArray());
+        Assert.Contains(pret.Sections[0].Notes, note => note.Contains("TDS challan"));
 
         Assert.Equal(LedgerChecklist.UnknownCountry, result.Held.Single(row => row.Name.StartsWith("SEROJET")).Ledger!.Category);
+    }
+
+    [Fact]
+    public void Duplicated_city_state_is_repaired_from_address_or_city_map()
+    {
+        using var fromAddress = BuildSheet(Row(
+            ("W", "Zenavis Fix"),
+            ("X", "Consignee"),
+            ("Y", "940 NW CARY PKWY"),
+            ("AA", "CARY, NC 27513, USA"),
+            ("AB", "CARY"),
+            ("AC", "CARY"),
+            ("AD", "USA")));
+        var repaired = new OrganisationConverter().Convert(ClientSheetReader.Read(fromAddress), MappingSeed.CreateCatalog());
+        var zenavis = Assert.Single(repaired.Overseas);
+        Assert.Equal("CARY", zenavis.City);
+        Assert.Equal("North Carolina", zenavis.State);
+        Assert.Empty(repaired.Held);
+
+        using var fromMap = BuildSheet(Row(
+            ("W", "Chicago Co"),
+            ("X", "Consignee"),
+            ("AB", "Chicago"),
+            ("AC", "Chicago"),
+            ("AD", "USA")));
+        var mapped = new OrganisationConverter().Convert(ClientSheetReader.Read(fromMap), MappingSeed.CreateCatalog());
+        var chicago = Assert.Single(mapped.Overseas);
+        Assert.Equal("Chicago", chicago.City);
+        Assert.Equal("Illinois", chicago.State);
+
+        using var typo = BuildSheet(Row(
+            ("W", "Illinois Typo"),
+            ("X", "Consignee"),
+            ("Y", "200 W Madison St"),
+            ("Z", "Chicago IL 60606"),
+            ("AB", "ILLIONIS"),
+            ("AC", "ILLIONIS"),
+            ("AD", "USA")));
+        var fixedTypo = new OrganisationConverter().Convert(ClientSheetReader.Read(typo), MappingSeed.CreateCatalog());
+        var illinois = Assert.Single(fixedTypo.Overseas);
+        Assert.Equal("Illinois", illinois.State);
+        Assert.Equal("Chicago", illinois.City);
+
+        using var italy = BuildSheet(Row(
+            ("W", "Milan Shipper"),
+            ("X", "Shipper"),
+            ("AB", "MILAN"),
+            ("AC", "MILAN"),
+            ("AD", "Italy")));
+        var milan = new OrganisationConverter().Convert(ClientSheetReader.Read(italy), MappingSeed.CreateCatalog());
+        var italyOrg = Assert.Single(milan.Overseas);
+        Assert.Equal("MILAN", italyOrg.City);
+        Assert.Equal("Lombardy", italyOrg.State);
+        Assert.Contains("State set to Lombardy", italyOrg.Note);
+        Assert.Empty(milan.Held);
+
+        using var palazzolo = BuildSheet(Row(
+            ("W", "Palazzolo Co"),
+            ("X", "Consignee"),
+            ("AB", "PALAZZOLO"),
+            ("AC", "PALAZZOLO"),
+            ("AD", "Italy")));
+        var italy2 = new OrganisationConverter().Convert(ClientSheetReader.Read(palazzolo), MappingSeed.CreateCatalog());
+        var pal = Assert.Single(italy2.Overseas);
+        Assert.Equal("PALAZZOLO", pal.City);
+        Assert.Equal("Lombardy", pal.State);
+        Assert.Empty(italy2.Held);
+
+        using var toronto = BuildSheet(Row(
+            ("W", "Toronto Co"),
+            ("X", "Consignee"),
+            ("AB", "TORONTO"),
+            ("AC", "TORONTO"),
+            ("AD", "Canada")));
+        var canada = new OrganisationConverter().Convert(ClientSheetReader.Read(toronto), MappingSeed.CreateCatalog());
+        var torontoOrg = Assert.Single(canada.Overseas);
+        Assert.Equal("TORONTO", torontoOrg.City);
+        Assert.Equal("Ontario", torontoOrg.State);
+        Assert.Empty(canada.Held);
+
+        using var dubai = BuildSheet(Row(
+            ("W", "Dubai Co"),
+            ("X", "Shipper"),
+            ("AB", "DUBAI"),
+            ("AC", "DUBAI"),
+            ("AD", "United Arab Emirates")));
+        var uae = new OrganisationConverter().Convert(ClientSheetReader.Read(dubai), MappingSeed.CreateCatalog());
+        var dubaiOrg = Assert.Single(uae.Overseas);
+        Assert.Equal("DUBAI", dubaiOrg.City);
+        Assert.Equal("DUBAI", dubaiOrg.State);
+        Assert.Empty(uae.Held);
+
+        using var argentina = BuildSheet(Row(
+            ("W", "Argentina Co"),
+            ("X", "Consignee"),
+            ("Y", "Av. Corrientes 123"),
+            ("AA", "Buenos Aires, Argentina"),
+            ("AB", "ARGENTINA"),
+            ("AC", "ARGENTINA"),
+            ("AD", "Argentina")));
+        var ar = new OrganisationConverter().Convert(ClientSheetReader.Read(argentina), MappingSeed.CreateCatalog());
+        var arOrg = Assert.Single(ar.Overseas);
+        Assert.Equal("Buenos Aires", arOrg.City);
+        Assert.Equal("Argentina", arOrg.Country);
+        Assert.Empty(ar.Held);
+
+        using var uruguay = BuildSheet(Row(
+            ("W", "Uruguay Co"),
+            ("X", "Shipper"),
+            ("AB", "URUGUAY"),
+            ("AC", "URUGUAY"),
+            ("AD", "Uruguay")));
+        var uy = new OrganisationConverter().Convert(ClientSheetReader.Read(uruguay), MappingSeed.CreateCatalog());
+        Assert.Empty(uy.Overseas);
+        var held = Assert.Single(uy.Held);
+        Assert.Equal("Uruguay Co", held.Name);
+        Assert.Contains("is the country name", held.Reason);
+        Assert.Contains("no real city was found in the address", held.Reason);
+    }
+
+    [Fact]
+    public void Region_country_with_city_named_like_a_country_is_repaired()
+    {
+        using var stream = BuildSheet(Row(
+            ("W", "Asia Pacific Trading"),
+            ("X", "Consignee"),
+            ("AB", "SINGAPORE"),
+            ("AD", "ASIA")));
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+        var org = Assert.Single(result.Overseas);
+        Assert.Equal("Singapore", org.Country);
+        Assert.False(string.IsNullOrWhiteSpace(org.City));
+        Assert.Contains("Singapore", org.Note);
+        Assert.Empty(result.Held);
+    }
+
+    [Fact]
+    public void City_typed_as_country_is_mapped_and_address_fills_location()
+    {
+        using var lagosOnly = BuildSheet(Row(
+            ("W", "Lagos Shipper"),
+            ("X", "Shipper"),
+            ("AD", "LAGOS")));
+        var mapped = new OrganisationConverter().Convert(ClientSheetReader.Read(lagosOnly), MappingSeed.CreateCatalog());
+        var fromMap = Assert.Single(mapped.Overseas);
+        Assert.Equal("Nigeria", fromMap.Country);
+        Assert.Equal("LAGOS", fromMap.City);
+        Assert.Contains("is a city, not a country", fromMap.Note);
+        Assert.Empty(mapped.Held);
+
+        using var fromAddress = BuildSheet(Row(
+            ("W", "Lagos Consignee"),
+            ("X", "Consignee"),
+            ("Y", "14 Marina"),
+            ("Z", "Lagos Island"),
+            ("AA", "Lagos, Nigeria"),
+            ("AD", "LAGOS")));
+        var repaired = new OrganisationConverter().Convert(ClientSheetReader.Read(fromAddress), MappingSeed.CreateCatalog());
+        var org = Assert.Single(repaired.Overseas);
+        Assert.Equal("Nigeria", org.Country);
+        Assert.False(string.IsNullOrWhiteSpace(org.City));
+        Assert.False(org.City.Equals("Nigeria", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(repaired.Held);
+    }
+
+    [Fact]
+    public void Country_field_with_stuck_postal_code_is_split()
+    {
+        using var stream = BuildSheet(Row(
+            ("W", "Canadian Co"),
+            ("X", "Consignee"),
+            ("AB", "Mirabel"),
+            ("AD", "CANADA J7C 5N5")));
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), MappingSeed.CreateCatalog());
+        var org = Assert.Single(result.Overseas);
+        Assert.Equal("Canada", org.Country);
+        Assert.Equal("J7C 5N5", org.Cells["PostalCode"]);
+        Assert.Contains("Postal code J7C 5N5 was moved out of the country field", org.Note);
+        Assert.Empty(result.Held);
+    }
+
+    [Fact]
+    public void Country_aliases_treat_uae_spellings_as_the_same()
+    {
+        var catalog = MappingSeed.CreateCatalog();
+        Assert.Equal("uae", MappingSeed.NormalizeAlias("UAE"));
+        Assert.Equal("uae", MappingSeed.NormalizeAlias("U.A.E"));
+        Assert.Equal("uae", MappingSeed.NormalizeAlias("U.A.E."));
+        Assert.Equal("United Arab Emirates", catalog.CountryAliases[MappingSeed.NormalizeAlias("U.A.E")]);
+        Assert.Equal("United Arab Emirates", catalog.CountryAliases[MappingSeed.NormalizeAlias("UAE")]);
+        Assert.Equal("United Arab Emirates", catalog.CountryAliases[MappingSeed.NormalizeAlias("U.A.E.")]);
+        Assert.Equal("United States of America", catalog.CountryAliases[MappingSeed.NormalizeAlias("UNITED STATE")]);
+        Assert.Equal("United States of America", catalog.CountryAliases[MappingSeed.NormalizeAlias("United States")]);
+
+        using var stream = BuildSheet(Row(
+            ("W", "ALBAKRAWE GENERAL TRADING"),
+            ("X", "Shipper"),
+            ("AB", "Dubai"),
+            ("AD", "U.A.E")));
+        var result = new OrganisationConverter().Convert(ClientSheetReader.Read(stream), catalog);
+        Assert.DoesNotContain(result.Held, row => row.Name.Contains("ALBAKRAWE", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Overseas, row => row.Name.Contains("ALBAKRAWE", StringComparison.OrdinalIgnoreCase)
+            && row.Country == "United Arab Emirates");
     }
 
     [Fact]
@@ -339,6 +560,26 @@ public class ConversionTests
         var nepal = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Consignee")), "Nepal");
         Assert.Contains("OVR RECEIVABLE", Assert.Single(nepal.Sections).Notes[0]);
         Assert.Equal(2, nepal.MissingCount);
+
+        var indiaShipper = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AN", "https://drive/pan"),
+                ("AO", "27AAHCN2196G1Z9"), ("AP", "https://drive/gst")),
+            "India");
+        Assert.Equal("India receivable – shipper, consignee", Assert.Single(indiaShipper.Sections).Title);
+        Assert.Contains(indiaShipper.Sections[0].Items, item => item.Label == "TAN document" && item.State == LedgerItemStates.Missing);
+        Assert.Contains(indiaShipper.Sections[0].Items, item => item.Label.StartsWith("TDS challan"));
+        Assert.DoesNotContain(indiaShipper.Sections[0].Items, item => item.Label.Contains("MSME"));
+
+        var indiaCarrier = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Carrier"), ("AM", "AAHCN2196G"), ("AN", "https://drive/pan"),
+                ("AO", "27AAHCN2196G1Z9"), ("AP", "https://drive/gst")),
+            "India");
+        var payable = Assert.Single(indiaCarrier.Sections);
+        Assert.Equal("India payable – carrier, agent", payable.Title);
+        Assert.Equal(["PAN document", "GST document", "MSME certificate"], payable.Items.Select(item => item.Label).ToArray());
+        Assert.Equal(LedgerItemStates.Collect, payable.Items.Single(item => item.Label == "MSME certificate").State);
+        Assert.Contains(payable.Notes, note => note.Contains("non-MSME declaration"));
+        Assert.DoesNotContain(payable.Items, item => item.Label.Contains("TAN") || item.Label.Contains("KYC"));
     }
 
     private static Dictionary<string, string> Row(params (string Column, string Value)[] cells) =>

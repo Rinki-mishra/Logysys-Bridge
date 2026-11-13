@@ -1,5 +1,9 @@
 using LogisysOrgConverter.Conversion;
+using System.Text.Json;
+using LogisysOrgConverter.GoogleDrive;
+using LogisysOrgConverter.Notifications;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LogisysOrgConverter.Data;
 
@@ -16,24 +20,34 @@ public sealed class ConversionStore
     private readonly OrganisationConverter _converter;
     private readonly TemplateWorkbookWriter _writer;
     private readonly TemplatePaths _templates;
+    private readonly GstCertificateReader _certificates;
+    private readonly EmailOptions _email;
 
     public ConversionStore(
         AppDbContext db,
         OrganisationConverter converter,
         TemplateWorkbookWriter writer,
-        TemplatePaths templates)
+        TemplatePaths templates,
+        GstCertificateReader certificates,
+        IOptions<EmailOptions> email)
     {
+        _email = email.Value;
         _db = db;
         _converter = converter;
         _writer = writer;
         _templates = templates;
+        _certificates = certificates;
     }
 
     public async Task<Guid> ConvertAsync(string fileName, Stream stream, CancellationToken cancellationToken = default)
     {
         var rows = ClientSheetReader.Read(stream);
+        var documentsByRow = rows.ToDictionary(
+            row => row.RowNumber,
+            row => FormDocuments.Write(FormDocuments.Collect(row.Cells)));
         var catalog = await LoadCatalogAsync(cancellationToken);
-        var result = _converter.Convert(rows, catalog);
+        var certificates = await _certificates.ReadAsync(rows, cancellationToken);
+        var result = _converter.Convert(rows, catalog, certificates);
 
         var run = new ConversionRun
         {
@@ -66,13 +80,28 @@ public sealed class ConversionStore
                 Country = NullIfBlank(update.Country),
                 RequesterEmail = update.RequesterEmail,
                 RequesterName = NullIfBlank(update.RequesterName),
-                LedgerJson = LedgerJson.Write(update.Ledger)
+                LedgerJson = LedgerJson.Write(update.Ledger),
+                DocumentsJson = documentsByRow.GetValueOrDefault(update.SourceRowNumber)
             });
         }
 
         foreach (var ready in result.India.Concat(result.Overseas).OrderBy(item => item.SourceRowNumber))
         {
-            run.Rows.Add(ToRow(run.Id, ready));
+            var row = ToRow(run.Id, ready);
+            row.DocumentsJson = documentsByRow.GetValueOrDefault(ready.SourceRowNumber);
+            run.Rows.Add(row);
+        }
+
+        foreach (var agent in result.AwaitingApproval)
+        {
+            var row = ToRow(run.Id, agent);
+            row.Status = RowStatuses.Approval;
+            row.Template = RowTemplates.OverseasAgent;
+            row.Reason = HoldReason.AgentNeedsApproval(_email.AgentApprover);
+            row.ApprovalDetails = agent.Note;
+            row.CellsJson = JsonSerializer.Serialize(agent.Cells);
+            row.DocumentsJson = documentsByRow.GetValueOrDefault(agent.SourceRowNumber);
+            run.Rows.Add(row);
         }
 
         foreach (var held in result.Held)
@@ -91,7 +120,8 @@ public sealed class ConversionStore
                 Country = held.Country,
                 RequesterEmail = held.RequesterEmail,
                 RequesterName = NullIfBlank(held.RequesterName),
-                LedgerJson = LedgerJson.Write(held.Ledger)
+                LedgerJson = LedgerJson.Write(held.Ledger),
+                DocumentsJson = documentsByRow.GetValueOrDefault(held.SourceRowNumber)
             });
         }
 
@@ -123,17 +153,88 @@ public sealed class ConversionStore
 
     public async Task<ConversionRun?> GetRunAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var run = await _db.Runs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        // Do not load India/Overseas/Updates blobs with the page — they are huge and cause SQL timeouts.
+        var run = await _db.Runs.AsNoTracking()
+            .Where(item => item.Id == id)
+            .Select(item => new ConversionRun
+            {
+                Id = item.Id,
+                SourceFileName = item.SourceFileName,
+                CreatedAtUtc = item.CreatedAtUtc,
+                IndiaCount = item.IndiaCount,
+                OverseasCount = item.OverseasCount,
+                HeldCount = item.HeldCount
+            })
+            .FirstOrDefaultAsync(cancellationToken);
         if (run is null)
         {
             return null;
         }
 
+        // Skip heavy CellsJson on the detail page; Notes/COD only need DocumentsJson + status fields.
         run.Rows = await _db.RunRows.AsNoTracking()
             .Where(row => row.RunId == id)
             .OrderBy(row => row.SourceRowNumber)
+            .Select(row => new ConversionRunRow
+            {
+                Id = row.Id,
+                RunId = row.RunId,
+                SourceRowNumber = row.SourceRowNumber,
+                OrganisationName = row.OrganisationName,
+                Status = row.Status,
+                Template = row.Template,
+                Reason = row.Reason,
+                BranchName = row.BranchName,
+                City = row.City,
+                State = row.State,
+                Country = row.Country,
+                RequesterEmail = row.RequesterEmail,
+                RequesterName = row.RequesterName,
+                ImportStatus = row.ImportStatus,
+                ImportMessage = row.ImportMessage,
+                ImportUpdatedAtUtc = row.ImportUpdatedAtUtc,
+                EmailedAtUtc = row.EmailedAtUtc,
+                LedgerJson = row.LedgerJson,
+                LedgerLinkedAtUtc = row.LedgerLinkedAtUtc,
+                LedgerRequestedAtUtc = row.LedgerRequestedAtUtc,
+                DocumentsJson = row.DocumentsJson,
+                NotesUploadStatus = row.NotesUploadStatus,
+                NotesUploadMessage = row.NotesUploadMessage,
+                CodMarkStatus = row.CodMarkStatus,
+                CodMarkMessage = row.CodMarkMessage,
+                ApprovalDetails = row.ApprovalDetails,
+                ApprovalRequestedAtUtc = row.ApprovalRequestedAtUtc,
+                ApprovalDecidedAtUtc = row.ApprovalDecidedAtUtc
+            })
             .ToListAsync(cancellationToken);
         return run;
+    }
+
+    // File downloads only — avoids loading every RunRow (timeout on large conversions).
+    public async Task<(DateTime CreatedAtUtc, byte[]? Bytes)?> GetExportFileAsync(
+        Guid id,
+        string which,
+        CancellationToken cancellationToken = default)
+    {
+        which = which.ToLowerInvariant();
+        var header = await _db.Runs.AsNoTracking()
+            .Where(item => item.Id == id)
+            .Select(item => new { item.CreatedAtUtc })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (header is null)
+        {
+            return null;
+        }
+
+        byte[]? bytes = which switch
+        {
+            "india" => await _db.Runs.AsNoTracking().Where(item => item.Id == id).Select(item => item.IndiaFile).FirstOrDefaultAsync(cancellationToken),
+            "overseas" => await _db.Runs.AsNoTracking().Where(item => item.Id == id).Select(item => item.OverseasFile).FirstOrDefaultAsync(cancellationToken),
+            "updates" => await _db.Runs.AsNoTracking().Where(item => item.Id == id).Select(item => item.UpdatesFile).FirstOrDefaultAsync(cancellationToken),
+            _ => null
+        };
+
+        return (header.CreatedAtUtc, bytes);
     }
 
     public async Task<MappingCatalog> LoadCatalogAsync(CancellationToken cancellationToken = default)
@@ -200,8 +301,62 @@ public sealed class ConversionStore
         Country = ready.Country,
         RequesterEmail = ready.RequesterEmail,
         RequesterName = NullIfBlank(ready.RequesterName),
-        LedgerJson = LedgerJson.Write(ready.Ledger)
+        LedgerJson = LedgerJson.Write(ready.Ledger),
+        // Keep organisation type (column X) so Softlink India G/L link can choose Customer vs Vendor.
+        CellsJson = ready.Cells.Count == 0
+            ? null
+            : JsonSerializer.Serialize(new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["X"] = ready.Cells.TryGetValue("X", out var flag) ? flag : null
+            })
     };
+
+    // An approved agent becomes a ready row of its own "Overseas agent" file; a rejected one is never created.
+    public async Task<bool> DecideAgentAsync(Guid runId, int rowId, bool approved, CancellationToken cancellationToken = default)
+    {
+        var row = await _db.RunRows.FirstOrDefaultAsync(
+            item => item.Id == rowId && item.RunId == runId && item.Template == RowTemplates.OverseasAgent
+                && item.ImportStatus == null
+                && (item.Status == RowStatuses.Approval || item.Status == RowStatuses.Ready || item.Status == RowStatuses.Rejected),
+            cancellationToken);
+        if (row is null)
+        {
+            return false;
+        }
+
+        var now = DateTime.UtcNow;
+        var when = IndiaDate(now);
+        row.Status = approved ? RowStatuses.Ready : RowStatuses.Rejected;
+        row.Reason = approved ? HoldReason.AgentApproved(when) : HoldReason.AgentRejected(when);
+        row.ApprovalDecidedAtUtc = now;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<byte[]?> GetApprovedAgentsFileAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.RunRows.AsNoTracking()
+            .Where(row => row.RunId == runId && row.Template == RowTemplates.OverseasAgent && row.Status == RowStatuses.Ready && row.CellsJson != null)
+            .OrderBy(row => row.SourceRowNumber)
+            .ToListAsync(cancellationToken);
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
+        var organisations = rows
+            .Select(row => new ReadyOrganisation(
+                row.SourceRowNumber,
+                MappingCatalog.OverseasTemplate,
+                row.OrganisationName,
+                row.BranchName ?? string.Empty,
+                row.City ?? string.Empty,
+                row.State ?? string.Empty,
+                row.Country ?? string.Empty,
+                JsonSerializer.Deserialize<Dictionary<string, string>>(row.CellsJson!)!))
+            .ToList();
+        return _writer.Write(_templates.Overseas, organisations);
+    }
 
     public async Task<bool> SetLedgerLinkedAsync(Guid runId, int rowId, bool linked, CancellationToken cancellationToken = default)
     {
@@ -214,6 +369,16 @@ public sealed class ConversionStore
         }
 
         row.LedgerLinkedAtUtc = linked ? DateTime.UtcNow : null;
+        if (!linked)
+        {
+            row.LedgerLinkStatus = null;
+            row.LedgerLinkMessage = null;
+        }
+        else if (string.IsNullOrWhiteSpace(row.LedgerLinkStatus))
+        {
+            row.LedgerLinkStatus = "Done";
+            row.LedgerLinkMessage = $"Marked linked manually at {DateTime.UtcNow:u}.";
+        }
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }

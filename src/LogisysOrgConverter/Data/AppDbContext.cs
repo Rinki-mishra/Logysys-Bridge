@@ -22,6 +22,8 @@ public sealed class AppDbContext : DbContext
 
     public DbSet<ExistingOrganisation> ExistingOrganisations => Set<ExistingOrganisation>();
 
+    public DbSet<GoogleConnection> GoogleConnections => Set<GoogleConnection>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<CountryAlias>(entity =>
@@ -92,6 +94,12 @@ public sealed class AppDbContext : DbContext
             entity.Property(item => item.Name).HasMaxLength(300);
             entity.Property(item => item.NameKey).HasMaxLength(300);
             entity.HasIndex(item => item.NameKey).IsUnique();
+        });
+
+        modelBuilder.Entity<GoogleConnection>(entity =>
+        {
+            entity.ToTable("GoogleConnections");
+            entity.Property(item => item.Email).HasMaxLength(320);
         });
     }
 }

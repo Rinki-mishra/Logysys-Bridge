@@ -1,6 +1,6 @@
-using LogisysOrgConverter.Conversion;
-using LogisysOrgConverter.Data;
-using LogisysOrgConverter.Notifications;
+using System.Security.Cryptography;
+using LogisysOrgConverter.GoogleDrive;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -8,63 +8,64 @@ namespace LogisysOrgConverter.Pages.Google;
 
 public class CallbackModel : PageModel
 {
-    private readonly GoogleSheets _google;
-    private readonly ConversionStore _store;
+    private readonly GoogleDriveAccess _drive;
+    private readonly IDataProtector _protector;
 
-    public CallbackModel(GoogleSheets google, ConversionStore store)
+    public CallbackModel(GoogleDriveAccess drive, IDataProtectionProvider dataProtection)
     {
-        _google = google;
-        _store = store;
+        _drive = drive;
+        _protector = dataProtection.CreateProtector(IndexModel.SignInPurpose);
     }
+
+    [TempData]
+    public string? Message { get; set; }
+
+    [TempData]
+    public string? ErrorMessage { get; set; }
 
     public async Task<IActionResult> OnGetAsync(string? code, string? state, string? error, CancellationToken cancellationToken)
     {
-        var redirectUri = HttpContext.Session.GetString(ConnectModel.OAuthRedirect) ?? _google.RedirectUri(Request);
-        var expected = HttpContext.Session.GetString(ConnectModel.OAuthState);
-        HttpContext.Session.Remove(ConnectModel.OAuthState);
-        if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != expected)
+        var saved = Request.Cookies[IndexModel.SignInCookie];
+        Response.Cookies.Delete(IndexModel.SignInCookie);
+
+        if (!string.IsNullOrEmpty(error))
         {
-            TempData["Error"] = string.IsNullOrEmpty(error)
-                ? "Google sign-in could not be confirmed. Try connecting again."
-                : "Google sign-in was cancelled.";
-            return RedirectToPage("/Index");
+            ErrorMessage = error == "access_denied"
+                ? "Google sign-in was cancelled, so Drive is not connected."
+                : $"Google sign-in failed ({error}).";
+            return RedirectToPage("/Google/Index");
         }
 
-        var kind = HttpContext.Session.GetString(ConnectModel.PendingKind);
-        var sourceId = HttpContext.Session.GetString(ConnectModel.PendingId);
-        var title = HttpContext.Session.GetString(ConnectModel.PendingTitle);
-        HttpContext.Session.Remove(ConnectModel.PendingKind);
-        HttpContext.Session.Remove(ConnectModel.PendingId);
-        HttpContext.Session.Remove(ConnectModel.PendingTitle);
-
+        string[] parts;
         try
         {
-            await _google.ExchangeCodeAsync(code, redirectUri, cancellationToken);
+            parts = saved is null ? [] : _protector.Unprotect(saved).Split('|');
         }
-        catch (FormSheetException ex)
+        catch (CryptographicException)
         {
-            TempData["Error"] = ex.Message;
-            return RedirectToPage("/Index");
+            parts = [];
         }
 
-        if (string.IsNullOrEmpty(kind) || string.IsNullOrEmpty(sourceId))
+        if (parts.Length != 2 || string.IsNullOrEmpty(code) || parts[0] != state)
         {
-            TempData["Status"] = "Signed in to Google. Choose a form below to create the Logi-Sys files.";
-            return RedirectToPage("/Index");
+            ErrorMessage = "The Google sign-in expired or was started in another browser. Click Connect Google Drive again.";
+            return RedirectToPage("/Google/Index");
         }
 
         try
         {
-            var bytes = await _google.DownloadAsync(kind, sourceId, cancellationToken);
-            var notice = new FormNotice(kind, sourceId, string.IsNullOrWhiteSpace(title) ? "form responses" : title, DateTime.UtcNow, null);
-            await using var stream = new MemoryStream(bytes);
-            var id = await _store.ConvertAsync(notice.FileName, stream, cancellationToken);
-            return RedirectToPage("/Runs/Detail", new { id });
+            var email = await _drive.CompleteSignInAsync(code, _drive.RedirectUri(Request), parts[1], cancellationToken);
+            Message = $"Google Drive connected as {email}. GST certificates will be read on the next conversion.";
         }
-        catch (Exception ex) when (ex is FormSheetException or ClientSheetException)
+        catch (GoogleDriveException ex)
         {
-            TempData["Error"] = ex.Message;
-            return RedirectToPage("/Index");
+            ErrorMessage = $"Google Drive was not connected: {ex.Message}.";
         }
+        catch (HttpRequestException)
+        {
+            ErrorMessage = "Google could not be reached. Check the internet connection and try again.";
+        }
+
+        return RedirectToPage("/Google/Index");
     }
 }

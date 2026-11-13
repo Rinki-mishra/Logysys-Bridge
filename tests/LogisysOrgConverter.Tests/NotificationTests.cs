@@ -76,31 +76,69 @@ public class NotificationTests
     }
 
     [Fact]
+    public void Overseas_agents_go_to_the_approver_in_one_email()
+    {
+        var draft = AgentApprovalComposer.Compose(
+        [
+            new AgentForApproval(7, "Bertschi Global AG", "Duerrenaesch", "Switzerland", "Type: Sub-Agent, Overseas Agent\nWCA ID: 12345", "riya@sar.com", "Riya"),
+            new AgentForApproval(8, "CreateART", "Melbourne", "Australia", "Type: Overseas Agent", "devesh@sar.com", "Devesh")
+        ], new EmailOptions { AgentApprover = "pankaj@tnpsfl.com", Signature = "Regards,\\nTeam" });
+
+        Assert.NotNull(draft);
+        Assert.Equal("pankaj@tnpsfl.com", draft.RecipientEmail);
+        Assert.Equal("Approval needed to create 2 overseas agents", draft.Subject);
+        Assert.Contains("1. Bertschi Global AG (Duerrenaesch, Switzerland)\n   Type: Sub-Agent, Overseas Agent\n   WCA ID: 12345\n", draft.Body);
+        Assert.Contains("2. CreateART (Melbourne, Australia)", draft.Body);
+        Assert.Equal([7, 8], draft.Organisations.Select(item => item.RowId).ToArray());
+        Assert.Null(AgentApprovalComposer.Compose([], new EmailOptions()));
+    }
+
+    [Fact]
     public void Ledger_request_lists_missing_documents_and_approvals_per_requestor()
     {
         Dictionary<string, string> Cells(params (string, string)[] values) =>
             values.ToDictionary(value => value.Item1, value => value.Item2, StringComparer.OrdinalIgnoreCase);
         var neoPoly = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AN", "https://drive/pan"), ("AO", "27AAHCN2196G1Z9")),
+            "India");
+        var complete = LedgerRules.Build(
+            Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AN", "https://drive/pan"),
+                ("AU", "PNEC05853B"), ("BF", "https://drive/tan"), ("AO", "27AAHCN2196G1Z9"), ("AP", "https://drive/gst")),
+            "India");
+        var agent = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Overseas Agent")), "Germany");
+
+        var secondNeedingDocs = LedgerRules.Build(
             Cells(("I", "Yes"), ("X", "Shipper"), ("AL", "https://drive/kyc"), ("AM", "AAHCN2196G"), ("AO", "27AAHCN2196G1Z9")),
             "India");
-        var complete = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Notify Party")), "India");
-        var agent = LedgerRules.Build(Cells(("I", "Yes"), ("X", "Overseas Agent")), "Germany");
 
         var drafts = LedgerRequestComposer.Compose(
         [
             new LedgerRequestOrganisation(1, "NEO POLY INDUSTRIES PRIVATE LIMITED", "India", "riya@sar.com", "Riya", neoPoly),
             new LedgerRequestOrganisation(2, "Notify Only", "India", "riya@sar.com", "Riya", complete),
+            new LedgerRequestOrganisation(4, "SECOND SHIPPER PRIVATE LIMITED", "India", "riya@sar.com", "Riya", secondNeedingDocs),
             new LedgerRequestOrganisation(3, "Euro Agent GmbH", "Germany", "devesh@sar.com", "Devesh", agent)
         ], new EmailOptions { Signature = "Regards,\\nTeam" });
 
-        Assert.Equal(2, drafts.Count);
-        var riya = drafts.Single(draft => draft.RecipientEmail == "riya@sar.com");
+        // One mail per organisation — same requestor can appear more than once.
+        Assert.Equal(3, drafts.Count);
+        Assert.Equal(2, drafts.Count(draft => draft.RecipientEmail == "riya@sar.com"));
+        var riya = drafts.Single(draft => draft.Organisations.Single().RowId == 1);
         Assert.Equal("Documents needed for ledger link: NEO POLY INDUSTRIES PRIVATE LIMITED", riya.Subject);
         Assert.Equal([1], riya.Organisations.Select(item => item.RowId).ToArray());
-        Assert.Contains("  - TAN\n", riya.Body);
-        Assert.Contains("  - COI (certificate of incorporation)", riya.Body);
-        Assert.Contains("TDS challan", riya.Body);
+        Assert.Contains("  - TAN document (not attached)\n", riya.Body);
+        Assert.Contains("  - TDS challan (when TAN is not available)\n", riya.Body);
+        Assert.Contains("  - GST document (GST number 27AAHCN2196G1Z9 given, but the document is not attached)\n", riya.Body);
+        Assert.Contains("Please note:\n  - If TAN is not available, provide the TDS challan.\n", riya.Body);
         Assert.DoesNotContain("  - PAN", riya.Body);
+        Assert.DoesNotContain("KYC", riya.Body);
+        Assert.DoesNotContain("COI", riya.Body);
+        Assert.DoesNotContain("IEC", riya.Body);
+        Assert.DoesNotContain("MSME", riya.Body);
+        Assert.DoesNotContain("SECOND SHIPPER", riya.Body);
+
+        var second = drafts.Single(draft => draft.Organisations.Single().RowId == 4);
+        Assert.Equal("Documents needed for ledger link: SECOND SHIPPER PRIVATE LIMITED", second.Subject);
+        Assert.Equal("riya@sar.com", second.RecipientEmail);
 
         var devesh = drafts.Single(draft => draft.RecipientEmail == "devesh@sar.com");
         Assert.Contains("Approvals:\n  - Approval to create the organisation and mark the ledger: Shivangi (sea) / Aditya (air)", devesh.Body);

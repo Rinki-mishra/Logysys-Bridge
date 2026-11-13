@@ -7,12 +7,24 @@
     var when = DetailModel.IndiaTime(run.CreatedAtUtc).ToString("d MMM yyyy, HH:mm");
     var mergedCount = run.Rows.Count(row => row.Status == RowStatuses.Merged);
     var updateCount = run.Rows.Count(row => row.Status == RowStatuses.Update);
-    var ledgerRows = run.Rows
-        .Select(row => (Row: row, Checklist: LedgerJson.Read(row.LedgerJson)))
-        .Where(item => item.Checklist is not null)
-        .Select(item => (item.Row, Checklist: item.Checklist!))
+    var ledgerCount = run.Rows.Count(row => row.LedgerJson is not null);
+    var agents = run.Rows.Where(row => row.Template == RowTemplates.OverseasAgent).ToList();
+    var waitingAgents = agents.Count(row => row.Status == RowStatuses.Approval);
+    var approvedAgents = agents.Count(row => row.Status == RowStatuses.Ready);
+    var templates = new[] { (RowTemplates.India, run.IndiaCount), (RowTemplates.Overseas, run.OverseasCount), (RowTemplates.OverseasAgent, approvedAgents) }
+        .Where(item => item.Item2 > 0).ToList();
+    var heldRows = run.Rows
+        .Where(row => row.Status is RowStatuses.Held or RowStatuses.Rejected)
+        .OrderBy(row => row.SourceRowNumber)
         .ToList();
-    var templates = new[] { ("India", run.IndiaCount), ("Overseas", run.OverseasCount) }.Where(item => item.Item2 > 0).ToList();
+    var updateRows = run.Rows
+        .Where(row => row.Status == RowStatuses.Update)
+        .OrderBy(row => row.SourceRowNumber)
+        .ToList();
+    var completedRows = run.Rows
+        .Where(row => row.Status is RowStatuses.Ready or RowStatuses.Merged)
+        .OrderBy(row => row.SourceRowNumber)
+        .ToList();
 }
 
 <section class="panel">
@@ -24,6 +36,9 @@
         }@if (updateCount > 0)
         {
             <text> @updateCount @(updateCount == 1 ? "organisation is" : "organisations are") already in Logi-Sys and will not be created again; apply the new address from the address updates file.</text>
+        }@if (waitingAgents > 0)
+        {
+            <text> @waitingAgents overseas @(waitingAgents == 1 ? "agent waits" : "agents wait") for approval from @Model.AgentApprover before being created.</text>
         }</p>
 
     @if (!string.IsNullOrEmpty(Model.Message))
@@ -48,6 +63,10 @@
         {
             <span class="button disabled">No overseas rows</span>
         }
+        @if (approvedAgents > 0)
+        {
+            <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="agents">Download approved agents file</a>
+        }
         @if (run.UpdatesFile is { Length: > 0 })
         {
             <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="File" asp-route-which="updates">Download address updates</a>
@@ -55,6 +74,196 @@
         <a class="text-link" asp-page="/Index">Convert another sheet</a>
     </div>
 </section>
+
+@if (run.IndiaCount > 0 || run.OverseasCount > 0)
+{
+    <section class="panel step" id="softlink-import">
+        <p class="eyebrow">Softlink import</p>
+        <h2>Upload organisations into Logi-Sys</h2>
+        <p class="lead">
+            Opens Softlink <strong>Organizations</strong>, clicks the ⋮ menu → <strong>Upload Organizations</strong>,
+            then uploads the India file first and the overseas file second (Type of Source: Organization Details).
+            1) Sign in to Softlink and leave Edge open.
+            2) Upload both files.
+        </p>
+        <div class="actions">
+            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
+                <input type="hidden" name="returnTo" value="softlink-import" />
+                <button type="submit" class="secondary">1. Sign in to Softlink</button>
+            </form>
+            <form method="post" asp-page-handler="UploadOrganisations" asp-route-id="@run.Id" class="send-form" data-upload-orgs>
+                <button type="submit">2. Upload India@(run.OverseasCount > 0 ? " + overseas" : "") to Softlink</button>
+            </form>
+        </div>
+    </section>
+}
+
+@if (agents.Count > 0)
+{
+    <section class="panel step" id="agents">
+        <p class="eyebrow">Overseas agents</p>
+        <h2>Approval from @Model.AgentApprover: @agents.Count @(agents.Count == 1 ? "agent" : "agents")</h2>
+        <p class="lead">
+            Overseas agents are not put in the overseas file. Send them to @Model.AgentApprover for approval, then mark each one.
+            Approved agents go into a separate approved agents file to import; agents not approved are never created.
+        </p>
+        @if (Model.ApprovalDraft is { } approval)
+        {
+            <details class="draft">
+                <summary><strong>@approval.RecipientEmail</strong> <span>@approval.Subject</span></summary>
+                <pre>@approval.Body</pre>
+            </details>
+            <form method="post" asp-page-handler="SendApproval" asp-route-id="@run.Id" class="send-form">
+                <button type="submit">@(Model.UsesSmtp ? $"Send approval request to {Model.AgentApprover}" : "Save approval request as a file")</button>
+            </form>
+        }
+        @foreach (var agent in agents)
+        {
+            var state = agent.Status switch
+            {
+                RowStatuses.Approval => agent.ApprovalRequestedAtUtc is DateTime asked
+                    ? $"Waiting for approval, asked {DetailModel.IndiaTime(asked):d MMM, HH:mm} IST"
+                    : "Waiting for approval, not sent yet",
+                RowStatuses.Ready => $"Approved · {agent.ImportStatus ?? "not imported yet"}",
+                _ => "Not approved"
+            };
+            <details class="ledger-card @(agent.Status == RowStatuses.Ready ? "done" : agent.Status == RowStatuses.Rejected ? "missing" : "open")">
+                <summary>
+                    <strong>@agent.OrganisationName</strong>
+                    <span class="ledger-meta">Row @agent.SourceRowNumber · @agent.Country</span>
+                    <span class="ledger-state">@state</span>
+                </summary>
+                @if (!string.IsNullOrWhiteSpace(agent.ApprovalDetails))
+                {
+                    <ul class="ledger-items">
+                        @foreach (var line in agent.ApprovalDetails.Split('\n'))
+                        {
+                            <li><span>@line</span></li>
+                        }
+                    </ul>
+                }
+                @if (agent.ImportStatus is null)
+                {
+                    <form method="post" asp-page-handler="Agent" asp-route-id="@run.Id" class="mark-form">
+                        <input type="hidden" name="rowId" value="@agent.Id" />
+                        @if (agent.Status != RowStatuses.Ready)
+                        {
+                            <button type="submit" name="approved" value="true" class="small">Mark approved</button>
+                        }
+                        @if (agent.Status != RowStatuses.Rejected)
+                        {
+                            <button type="submit" name="approved" value="false" class="small ghost">Mark not approved</button>
+                        }
+                    </form>
+                }
+            </details>
+        }
+    </section>
+}
+
+@{
+    // Only Created — Update rows are "already in Logi-Sys" and can be hundreds/thousands.
+    var noteRows = run.Rows
+        .Where(row => !string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]"
+            && row.ImportStatus == ImportStatuses.Created)
+        .ToList();
+    var notePending = noteRows.Count(row => row.NotesUploadStatus != "Attached");
+    var finishRows = run.Rows
+        .Where(row => row.ImportStatus == ImportStatuses.Created)
+        .ToList();
+    var finishPending = finishRows.Count(row =>
+        (row.CodMarkStatus != "Done" && row.CodMarkStatus != "Skipped")
+        || (!string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]" && row.NotesUploadStatus != "Attached"));
+    var wakazo = finishRows.FirstOrDefault(row =>
+        row.OrganisationName.Contains("Wakazo", StringComparison.OrdinalIgnoreCase));
+}
+
+@if (finishRows.Count > 0)
+{
+    <section class="panel step" id="softlink-finish">
+        <p class="eyebrow">Softlink finish</p>
+        <h2>Complete new organisations in Logi-Sys</h2>
+        <p class="lead">
+            Softlink Excel import creates the organisation but does not tick Cash On Delivery or add Notes.
+            After you import the India file and mark rows <strong>Created</strong> here:
+            1) Sign in to Softlink (leave Edge open).
+            2) <strong>Finish new organisations</strong> ticks Cash On Delivery (skipped when Credit Limit or Unlimited is set), then opens the Notes tab (second-to-last after KYC) → New → Attachment Choose File → uploads every document linked on the form (KYC, PAN, GST, TAN, IEC, etc., max 2&nbsp;MB each).
+            Load spreadsheet from mail once first so Drive downloads work.
+        </p>
+        <div class="actions">
+            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
+                <button type="submit" class="secondary">1. Sign in to Softlink</button>
+            </form>
+            <form method="post" asp-page-handler="FinishSoftlink" asp-route-id="@run.Id" class="send-form" data-attach-notes>
+                <button type="submit">2. Finish @finishPending new organisation@(finishPending == 1 ? "" : "s")</button>
+            </form>
+            @if (wakazo is not null && ((wakazo.CodMarkStatus != "Done" && wakazo.CodMarkStatus != "Skipped") || wakazo.NotesUploadStatus != "Attached"))
+            {
+                <form method="post" asp-page-handler="FinishSoftlink" asp-route-id="@run.Id" class="send-form" data-attach-notes>
+                    <input type="hidden" name="orgName" value="Wakazo Corporation" />
+                    <button type="submit" class="secondary">Test: Finish Wakazo Corporation only</button>
+                </form>
+            }
+        </div>
+        <ul class="ledger-items">
+            @foreach (var row in finishRows)
+            {
+                <li>
+                    <strong>@row.OrganisationName</strong>
+                    <span>
+                        COD: @(row.CodMarkStatus ?? "pending")@(string.IsNullOrWhiteSpace(row.CodMarkMessage) ? "" : " · " + row.CodMarkMessage)
+                        @if (!string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]")
+                        {
+                            <text> · Notes: @(row.NotesUploadStatus ?? "pending")</text>
+                        }
+                    </span>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@if (noteRows.Count > 0)
+{
+    <section class="panel step" id="notes">
+        <p class="eyebrow">Organisation notes</p>
+        <h2>Attach form documents in Logi-Sys</h2>
+        <p class="lead">
+            For organisations marked <strong>Created</strong> only (not the “already in Logi-Sys” list).
+            Attach downloads every Drive document linked on the form (KYC, PAN, GST, TAN, IEC, etc.), then in Softlink opens each org → <strong>Notes</strong> → <strong>New</strong> → Attachment Choose File (max 2&nbsp;MB each).
+            1) <strong>Sign in to Softlink</strong> as @(string.IsNullOrWhiteSpace(Model.SoftlinkUser) ? "RiyaRP" : Model.SoftlinkUser) — leave Edge open.
+            2) <strong>Attach documents</strong>. Load spreadsheet from mail once first so Drive works.
+        </p>
+        <div class="actions">
+            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
+                <button type="submit" class="secondary">1. Sign in to Softlink</button>
+            </form>
+            <form method="post" asp-page-handler="AttachNotes" asp-route-id="@run.Id" class="send-form" data-attach-notes>
+                <button type="submit">2. Attach @notePending document set@(notePending == 1 ? "" : "s")</button>
+            </form>
+        </div>
+        <ul class="ledger-items">
+            @foreach (var row in noteRows)
+            {
+                <li>
+                    <strong>@row.OrganisationName</strong>
+                    <span>@(row.NotesUploadStatus ?? "Not attached yet")@(string.IsNullOrWhiteSpace(row.NotesUploadMessage) ? "" : " · " + row.NotesUploadMessage)</span>
+                </li>
+            }
+        </ul>
+    </section>
+}
+else if (run.Rows.Any(row => row.Status == RowStatuses.Update && !string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]"))
+{
+    <section class="panel step" id="notes">
+        <p class="eyebrow">Organisation notes</p>
+        <h2>No Created organisations to attach</h2>
+        <p class="lead">
+            Mark the Logi-Sys import result so new organisations are <strong>Created</strong>, then Attach will run for those only.
+            Rows already in Logi-Sys are skipped on purpose — attaching every Update row tried thousands of Drive files and never finished.
+        </p>
+    </section>
+}
 
 @if (templates.Count > 0)
 {
@@ -116,23 +325,78 @@
     }
 </section>
 
-@if (ledgerRows.Count > 0)
+@{
+    // Softlink G/L only for recently uploaded India orgs (ImportStatus = Created), not already-in-Logi-Sys Update rows.
+    var indiaLedgerRows = run.Rows
+        .Where(row => row.LedgerJson is not null
+            && row.ImportStatus == ImportStatuses.Created)
+        .Select(row => (Row: row, Checklist: LedgerJson.Read(row.LedgerJson)))
+        .Where(item => item.Checklist is not null
+            && (string.Equals(item.Checklist.Category, "India", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Row.Template, "India", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Row.Country, "India", StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+    var indiaLedgerPending = indiaLedgerRows.Count(item =>
+        item.Row.LedgerLinkedAtUtc is null
+        && item.Row.LedgerLinkStatus != "Done"
+        && item.Row.LedgerLinkStatus != "Skipped");
+}
+@if (ledgerCount > 0)
 {
     <section class="panel step" id="ledger">
         <p class="eyebrow">To be invoiced</p>
-        <h2>Ledger link: @ledgerRows.Count @(ledgerRows.Count == 1 ? "organisation" : "organisations")</h2>
+        <h2>Ledger link: @ledgerCount @(ledgerCount == 1 ? "organisation" : "organisations")</h2>
         <p class="lead">
             Column I says these organisations are to be invoiced, so their ledger has to be linked in Logi-Sys.
-            Documents the client gave in the form are checked here; the rest has to be collected, and the approvals taken, before linking.
+            Softlink G/L runs only for <strong>India</strong> organisations marked <strong>Created</strong> after Softlink upload
+            (recent uploads) — not for rows already in Logi-Sys.
+            Shipper/consignee → <strong>Customer G/L → TPY Receivable</strong>;
+            agent/sub-agent/carrier → <strong>Vendor G/L → TPY Payable</strong>.
+            Overseas Softlink G/L is not automated yet.
         </p>
         <div class="actions">
             <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="LedgerFile">Download ledger checklist</a>
+            @if (indiaLedgerPending > 0)
+            {
+                <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
+                    <input type="hidden" name="returnTo" value="ledger" />
+                    <button type="submit" class="secondary">1. Sign in to Softlink</button>
+                </form>
+                <form method="post" asp-page-handler="LinkIndiaLedger" asp-route-id="@run.Id" class="send-form" data-attach-notes>
+                    <button type="submit">2. Link India G/L (@indiaLedgerPending)</button>
+                </form>
+            }
         </div>
+        @if (indiaLedgerRows.Count > 0)
+        {
+            <ul class="ledger-items">
+                @foreach (var item in indiaLedgerRows)
+                {
+                    var row = item.Row;
+                    <li>
+                        <strong>@row.OrganisationName</strong>
+                        <span>
+                            @(row.LedgerLinkedAtUtc is not null
+                                ? "Linked"
+                                : row.LedgerLinkStatus ?? "pending")
+                            @(string.IsNullOrWhiteSpace(row.LedgerLinkMessage) ? "" : " · " + row.LedgerLinkMessage)
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+        else if (run.Rows.Any(row => row.LedgerJson is not null))
+        {
+            <p class="lead">
+                Softlink G/L list is empty until India organisations from this upload are marked <strong>Created</strong>
+                (after Softlink Excel import).
+            </p>
+        }
         @if (Model.LedgerDrafts.Count > 0)
         {
             <h3>@Model.LedgerDrafts.Count document request @(Model.LedgerDrafts.Count == 1 ? "email is" : "emails are") ready</h3>
             <p class="lead">
-                Each requestor gets one email listing the documents and approvals still needed for their organisations.
+                Each organisation gets its own email to the requestor, listing the documents and approvals still needed.
                 @(Model.UsesSmtp ? "They go out through your SMTP mailbox." : $"SMTP is not set up yet, so they are saved as .eml files in {Model.PickupFolder}.")
                 An organisation is asked only once.
             </p>
@@ -147,133 +411,40 @@
                 <button type="submit">@(Model.UsesSmtp ? "Send document requests" : "Save document requests as files")</button>
             </form>
         }
-        @foreach (var (row, checklist) in ledgerRows)
-        {
-            <details class="ledger-card @(row.LedgerLinkedAtUtc is not null ? "done" : checklist.MissingCount > 0 ? "missing" : "open")">
-                <summary>
-                    <strong>@row.OrganisationName</strong>
-                    <span class="ledger-meta">Row @row.SourceRowNumber · @checklist.Category · @(row.Status == RowStatuses.Update ? "Already in Logi-Sys" : row.Status)</span>
-                    <span class="ledger-state">
-                        @(row.LedgerLinkedAtUtc is DateTime linkedAt
-                            ? $"Ledger linked {DetailModel.IndiaTime(linkedAt):d MMM, HH:mm} IST"
-                            : checklist.Summary)
-                        @if (row.LedgerLinkedAtUtc is null && row.LedgerRequestedAtUtc is DateTime requestedAt)
-                        {
-                            <text> Documents requested @DetailModel.IndiaTime(requestedAt).ToString("d MMM, HH:mm") IST.</text>
-                        }
-                    </span>
-                </summary>
-                @if (checklist.Sections.Count == 0)
-                {
-                    <p class="lead">No ledger rule matches this organisation's type or country. Check it with the accounts team.</p>
-                }
-                @foreach (var part in checklist.Sections)
-                {
-                    <h3>@part.Title</h3>
-                    <ul class="ledger-items">
-                        @foreach (var item in part.Items)
-                        {
-                            <li>
-                                <span class="badge @item.State.ToLowerInvariant()">@BadgeText(item.State)</span>
-                                <span>@item.Label@(string.IsNullOrWhiteSpace(item.Detail) ? "" : $" — {item.Detail}")</span>
-                            </li>
-                        }
-                    </ul>
-                    @foreach (var note in part.Notes)
-                    {
-                        <p class="ledger-note">@note</p>
-                    }
-                }
-                <form method="post" asp-page-handler="Ledger" asp-route-id="@run.Id" class="mark-form">
-                    <input type="hidden" name="rowId" value="@row.Id" />
-                    @if (row.LedgerLinkedAtUtc is null)
-                    {
-                        <button type="submit" name="linked" value="true" class="small">Mark ledger linked</button>
-                    }
-                    else
-                    {
-                        <button type="submit" name="linked" value="false" class="small ghost">Clear ledger linked</button>
-                    }
-                </form>
-            </details>
-        }
     </section>
 }
 
-<section class="table-wrap">
-    <table>
-        <thead>
-            <tr>
-                <th>Row</th>
-                <th>Organisation</th>
-                <th>File</th>
-                <th>Branch name</th>
-                <th>Country</th>
-                <th>Requestor</th>
-                <th>Result</th>
-                <th>Logi-Sys</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var row in run.Rows)
-            {
-                <tr class="@(row.Status is RowStatuses.Merged or RowStatuses.Update ? "merged" : row.Status == RowStatuses.Held ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
-                    <td>@row.SourceRowNumber</td>
-                    <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
-                    <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
-                    <td>@(string.IsNullOrWhiteSpace(row.BranchName) ? "—" : row.BranchName)</td>
-                    <td>@(string.IsNullOrWhiteSpace(row.Country) ? "—" : row.Country)</td>
-                    <td>
-                        @(row.RequesterName ?? "—")
-                        <span>@(row.RequesterEmail ?? "No email in column B")</span>
-                    </td>
-                    <td>
-                        <strong>@(row.Status == RowStatuses.Update ? "Address update" : row.Status)</strong>
-                        @if (!string.IsNullOrWhiteSpace(row.Reason))
-                        {
-                            <span>@row.Reason</span>
-                        }
-                        @if (Model.PendingElsewhere.TryGetValue(row.Id, out var pending))
-                        {
-                            <span class="warning">@pending</span>
-                        }
-                    </td>
-                    <td>
-                        @if (row.Status == "Ready")
-                        {
-                            <strong>@(row.ImportStatus ?? "Not imported yet")</strong>
-                            @if (!string.IsNullOrWhiteSpace(row.ImportMessage))
-                            {
-                                <span>@row.ImportMessage</span>
-                            }
-                            @if (row.EmailedAtUtc is not null)
-                            {
-                                <span>Emailed @DetailModel.IndiaTime(row.EmailedAtUtc.Value).ToString("d MMM, HH:mm") IST</span>
-                            }
-                            else
-                            {
-                                <form method="post" asp-page-handler="Mark" asp-route-id="@run.Id" class="mark-form">
-                                    <input type="hidden" name="rowId" value="@row.Id" />
-                                    @if (row.ImportStatus != ImportStatuses.Created)
-                                    {
-                                        <button type="submit" name="status" value="@ImportStatuses.Created" class="small">Mark created</button>
-                                    }
-                                    @if (row.ImportStatus != ImportStatuses.Failed)
-                                    {
-                                        <button type="submit" name="status" value="@ImportStatuses.Failed" class="small ghost">Mark failed</button>
-                                    }
-                                </form>
-                            }
-                        }
-                        else
-                        {
-                            <text>—</text>
-                        }
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+<section class="panel step" id="results">
+    <p class="eyebrow">Results</p>
+    <h2>Browse organisations by outcome</h2>
+    <p class="lead">Open one group at a time. Held rows were left out of the files. Already exist needs an address update in Logi-Sys. Completed are ready (or merged) for import.</p>
+    <div class="result-tabs" data-result-tabs>
+        <button type="button" class="result-tab" data-result-tab="held" aria-pressed="false">
+            Held
+            <span>@heldRows.Count</span>
+        </button>
+        <button type="button" class="result-tab" data-result-tab="update" aria-pressed="false">
+            Already exist
+            <span>@updateRows.Count</span>
+        </button>
+        <button type="button" class="result-tab" data-result-tab="completed" aria-pressed="false">
+            Completed
+            <span>@completedRows.Count</span>
+        </button>
+    </div>
+
+    <div class="result-panel" data-result-panel="held" hidden>
+        <p class="result-help">These were not put in the India or overseas file. Fix the reason, then convert again.</p>
+        @await Html.PartialAsync("_ResultRows", new ResultRowsModel(run.Id, heldRows, Model.PendingElsewhere))
+    </div>
+    <div class="result-panel" data-result-panel="update" hidden>
+        <p class="result-help">Already in Logi-Sys — use <strong>Download address updates</strong> and apply the new address there.</p>
+        @await Html.PartialAsync("_ResultRows", new ResultRowsModel(run.Id, updateRows, Model.PendingElsewhere))
+    </div>
+    <div class="result-panel" data-result-panel="completed" hidden>
+        <p class="result-help">Ready for Logi-Sys import (or merged into another row). Mark created after you import.</p>
+        @await Html.PartialAsync("_ResultRows", new ResultRowsModel(run.Id, completedRows, Model.PendingElsewhere))
+    </div>
 </section>
 
 @if (Model.Sent.Count > 0)
@@ -311,13 +482,3 @@
     </section>
 }
 
-@functions {
-    private static string BadgeText(string state) => state switch
-    {
-        LogisysOrgConverter.Conversion.LedgerItemStates.Provided => "In the form",
-        LogisysOrgConverter.Conversion.LedgerItemStates.Missing => "Missing",
-        LogisysOrgConverter.Conversion.LedgerItemStates.Collect => "To collect",
-        LogisysOrgConverter.Conversion.LedgerItemStates.Approval => "Approval",
-        _ => "Optional"
-    };
-}

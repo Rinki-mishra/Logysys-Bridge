@@ -1,0 +1,74 @@
+@model LogisysOrgConverter.Pages.Runs.LedgerCardsModel
+@using LogisysOrgConverter.Data
+@using LogisysOrgConverter.Conversion
+@{
+    string BadgeText(string state) => state switch
+    {
+        LedgerItemStates.Provided => "In the form",
+        LedgerItemStates.Missing => "Missing",
+        LedgerItemStates.Collect => "To collect",
+        LedgerItemStates.Approval => "Approval",
+        _ => "Optional"
+    };
+}
+@if (Model.Items.Count == 0)
+{
+    <p class="banner ok" role="status">None in this group.</p>
+}
+else
+{
+    @foreach (var (row, checklist) in Model.Items)
+    {
+        <details class="ledger-card @(row.LedgerLinkedAtUtc is not null ? "done" : checklist.MissingCount > 0 ? "missing" : "open")">
+            <summary>
+                <strong>@row.OrganisationName</strong>
+                <span class="ledger-meta">Row @row.SourceRowNumber · @checklist.Category · @(row.Status == RowStatuses.Update ? "Already in Logi-Sys" : row.Status)</span>
+                <span class="ledger-state">
+                    @(row.LedgerLinkedAtUtc is DateTime linkedAt
+                        ? $"Ledger linked {DetailModel.IndiaTime(linkedAt):d MMM, HH:mm} IST"
+                        : checklist.Summary)
+                    @if (!string.IsNullOrWhiteSpace(row.LedgerLinkMessage))
+                    {
+                        <text> · @row.LedgerLinkMessage</text>
+                    }
+                    @if (row.LedgerLinkedAtUtc is null && row.LedgerRequestedAtUtc is DateTime requestedAt)
+                    {
+                        <text> Documents requested @DetailModel.IndiaTime(requestedAt).ToString("d MMM, HH:mm") IST.</text>
+                    }
+                </span>
+            </summary>
+            @if (checklist.Sections.Count == 0)
+            {
+                <p class="lead">No ledger rule matches this organisation's type or country. Check it with the accounts team.</p>
+            }
+            @foreach (var part in checklist.Sections)
+            {
+                <h3>@part.Title</h3>
+                <ul class="ledger-items">
+                    @foreach (var item in part.Items)
+                    {
+                        <li>
+                            <span class="badge @item.State.ToLowerInvariant()">@BadgeText(item.State)</span>
+                            <span>@item.Label@(string.IsNullOrWhiteSpace(item.Detail) ? "" : $" — {item.Detail}")</span>
+                        </li>
+                    }
+                </ul>
+                @foreach (var note in part.Notes)
+                {
+                    <p class="ledger-note">@note</p>
+                }
+            }
+            <form method="post" asp-page="/Runs/Detail" asp-page-handler="Ledger" asp-route-id="@Model.RunId" class="mark-form">
+                <input type="hidden" name="rowId" value="@row.Id" />
+                @if (row.LedgerLinkedAtUtc is null)
+                {
+                    <button type="submit" name="linked" value="true" class="small">Mark ledger linked</button>
+                }
+                else
+                {
+                    <button type="submit" name="linked" value="false" class="small ghost">Clear ledger linked</button>
+                }
+            </form>
+        </details>
+    }
+}

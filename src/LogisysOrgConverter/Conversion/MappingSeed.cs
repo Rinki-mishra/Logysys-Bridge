@@ -47,8 +47,14 @@ public static class MappingSeed
         };
     }
 
-    public static string NormalizeAlias(string value) =>
-        string.Join(' ', value.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    // Letters/digits only (plus spaces), so UAE, U.A.E and U.A.E. share one key.
+    public static string NormalizeAlias(string value)
+    {
+        var cleaned = new string(value.Trim().ToLowerInvariant()
+            .Where(ch => char.IsLetterOrDigit(ch) || ch is ' ' or '\'')
+            .ToArray());
+        return string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     private static IReadOnlyList<FieldMapRule> BuildFieldMaps()
     {
@@ -59,9 +65,9 @@ public static class MappingSeed
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-GSTIN", "Registration", "AO", 220));
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-BIN No", "Registration", "AW", 230));
         maps.Add(Map(MappingCatalog.IndiaTemplate, "REG-IE Code No", "Registration", "AQ", 240));
-        // Softlink org import uses Is* headers for Account Info checkboxes (same as IsGlobal).
-        maps.Add(Map(MappingCatalog.IndiaTemplate, "IsCashOnDelivery", "Constant", null, 250, "yes"));
-        maps.Add(Map(MappingCatalog.OverseasTemplate, "IsCashOnDelivery", "Constant", null, 250, "yes"));
+        // Softlink Account Info uses display headers (like Credit Limit); checkbox values are Y/N.
+        maps.Add(Map(MappingCatalog.IndiaTemplate, "Cash On Delivery", "Constant", null, 250, "Y"));
+        maps.Add(Map(MappingCatalog.OverseasTemplate, "Cash On Delivery", "Constant", null, 250, "Y"));
         return maps;
     }
 
@@ -97,10 +103,10 @@ public static class MappingSeed
     {
         var rules = new List<CountryAliasRule>();
         Add(rules, "India", "India", "IND", "IN");
-        Add(rules, "United States of America", "United States of America", "United States", "USA", "US", "U.S.A.", "U.S.", "America");
+        Add(rules, "United States of America", "United States of America", "United States", "United State", "USA", "US", "U.S.A.", "U.S.", "America");
         Add(rules, "Australia", "Australia", "AUS");
         Add(rules, "United Kingdom", "United Kingdom", "UK", "U.K.", "Great Britain", "Britain");
-        Add(rules, "United Arab Emirates", "United Arab Emirates", "UAE", "U.A.E.");
+        Add(rules, "United Arab Emirates", "United Arab Emirates", "UAE", "U.A.E", "U.A.E.");
         Add(rules, "Singapore", "Singapore");
         Add(rules, "China", "China", "PRC");
         Add(rules, "Hong Kong", "Hong Kong", "HK");
@@ -219,6 +225,47 @@ public static class MappingSeed
         states.Add(new KnownStateRule(MappingCatalog.IndiaCountry, "Andhra Pradesh", "AP", "28"));
         states.Add(new KnownStateRule(MappingCatalog.IndiaCountry, "Orissa", "OR", "21"));
         states.Add(new KnownStateRule(MappingCatalog.IndiaCountry, "New Delhi", "ND", "07"));
+
+        // Italian regions (and common English/Italian spellings) so city/state repairs can fill State.
+        (string Name, string? Abbreviation)[] italianRegions =
+        [
+            ("Abruzzo", null), ("Aosta Valley", null), ("Valle d'Aosta", null),
+            ("Apulia", null), ("Puglia", null), ("Basilicata", null), ("Calabria", null),
+            ("Campania", null), ("Emilia-Romagna", null), ("Friuli-Venezia Giulia", null),
+            ("Lazio", null), ("Liguria", null), ("Lombardy", null), ("Lombardia", null),
+            ("Marche", null), ("Molise", null), ("Piedmont", null), ("Piemonte", null),
+            ("Sardinia", null), ("Sardegna", null), ("Sicily", null), ("Sicilia", null),
+            ("Trentino-Alto Adige", null), ("Tuscany", null), ("Toscana", null),
+            ("Umbria", null), ("Veneto", null)
+        ];
+        foreach (var (name, abbreviation) in italianRegions)
+        {
+            states.Add(new KnownStateRule("Italy", name, abbreviation, null));
+        }
+
+        (string Name, string Abbreviation)[] canadianProvinces =
+        [
+            ("Alberta", "AB"), ("British Columbia", "BC"), ("Manitoba", "MB"),
+            ("New Brunswick", "NB"), ("Newfoundland and Labrador", "NL"),
+            ("Northwest Territories", "NT"), ("Nova Scotia", "NS"), ("Nunavut", "NU"),
+            ("Ontario", "ON"), ("Prince Edward Island", "PE"), ("Quebec", "QC"),
+            ("Saskatchewan", "SK"), ("Yukon", "YT")
+        ];
+        foreach (var (name, abbreviation) in canadianProvinces)
+        {
+            states.Add(new KnownStateRule("Canada", name, abbreviation, null));
+        }
+
+        // UAE emirates — Dubai/Abu Dhabi are often typed into both City and State.
+        string[] uaeEmirates =
+        [
+            "Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ras Al Khaimah", "Fujairah"
+        ];
+        foreach (var name in uaeEmirates)
+        {
+            states.Add(new KnownStateRule("United Arab Emirates", name, null, null));
+        }
+
         return states;
     }
 }

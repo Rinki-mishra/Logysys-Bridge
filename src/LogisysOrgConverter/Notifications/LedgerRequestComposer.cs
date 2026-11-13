@@ -13,6 +13,7 @@ public sealed record LedgerRequestOrganisation(
 
 // Asks the requestor for what is still needed before the ledger can be linked:
 // documents missing from the form, documents the form does not ask for, and approvals.
+// One email per organisation (same requestor may get several mails).
 public static class LedgerRequestComposer
 {
     public static bool HasRequest(LedgerChecklist checklist) =>
@@ -23,52 +24,46 @@ public static class LedgerRequestComposer
     {
         return organisations
             .Where(item => HasRequest(item.Checklist))
-            .GroupBy(item => item.RequesterEmail.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
+            .OrderBy(item => item.RequesterEmail, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(item =>
             {
-                var items = group.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
-                var name = items.Select(item => item.RequesterName).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
-                var subject = items.Count == 1
-                    ? $"Documents needed for ledger link: {items[0].Name}"
-                    : $"Documents needed for ledger link: {items.Count} organisations";
+                var name = string.IsNullOrWhiteSpace(item.RequesterName) ? null : item.RequesterName.Trim();
+                var subject = $"Documents needed for ledger link: {item.Name}";
 
                 var body = new StringBuilder();
                 body.Append("Dear ").Append(string.IsNullOrWhiteSpace(name) ? "Sir/Madam" : name).Append(",\n\n");
-                body.Append(items.Count == 1
-                    ? "You asked for the organisation below to be invoiced. Before its ledger can be linked in Logi-Sys, we need the following.\n\n"
-                    : "You asked for the organisations below to be invoiced. Before their ledgers can be linked in Logi-Sys, we need the following.\n\n");
+                body.Append("You asked for the organisation below to be invoiced. Before its ledger can be linked in Logi-Sys, we need the following.\n\n");
 
-                foreach (var item in items)
+                body.Append(item.Name);
+                if (!string.IsNullOrWhiteSpace(item.Country))
                 {
-                    body.Append(item.Name);
-                    if (!string.IsNullOrWhiteSpace(item.Country))
-                    {
-                        body.Append(" (").Append(item.Country).Append(')');
-                    }
-
-                    body.Append('\n');
-                    var all = item.Checklist.Sections.SelectMany(section => section.Items).ToList();
-                    AppendList(body, "Documents", all
-                        .Where(entry => entry.State is LedgerItemStates.Missing or LedgerItemStates.Collect)
-                        .Select(entry => entry.State == LedgerItemStates.Missing && !string.IsNullOrWhiteSpace(entry.Detail)
-                            ? $"{entry.Label} ({entry.Detail})"
-                            : entry.Label));
-                    AppendList(body, "Approvals", all
-                        .Where(entry => entry.State == LedgerItemStates.Approval)
-                        .Select(entry => entry.Label));
-                    AppendList(body, "Please note", item.Checklist.Sections.SelectMany(section => section.Notes));
-                    body.Append('\n');
+                    body.Append(" (").Append(item.Country).Append(')');
                 }
+
+                body.Append('\n');
+                var all = item.Checklist.Sections.SelectMany(section => section.Items).ToList();
+                AppendList(body, "Documents", all
+                    .Where(entry => entry.State is LedgerItemStates.Missing or LedgerItemStates.Collect)
+                    .Select(entry => entry.State == LedgerItemStates.Missing && !string.IsNullOrWhiteSpace(entry.Detail)
+                        ? $"{entry.Label} ({entry.Detail})"
+                        : entry.Label));
+                AppendList(body, "Approvals", all
+                    .Where(entry => entry.State == LedgerItemStates.Approval)
+                    .Select(entry => entry.Label));
+                AppendList(body, "Please note", item.Checklist.Sections.SelectMany(section => section.Notes));
+                body.Append('\n');
 
                 body.Append("Please reply to this email with the documents and approvals.\n\n");
                 body.Append(options.Signature.Replace("\\n", "\n"));
 
-                var organisationsInDraft = items
-                    .Select(item => new CreatedOrganisation(item.RowId, item.Name, null, item.Country, item.RequesterEmail, item.RequesterName))
-                    .ToList();
-                return new EmailDraft(group.Key, name, subject, body.ToString(), organisationsInDraft);
+                return new EmailDraft(
+                    item.RequesterEmail.Trim(),
+                    name,
+                    subject,
+                    body.ToString(),
+                    [new CreatedOrganisation(item.RowId, item.Name, null, item.Country, item.RequesterEmail, item.RequesterName)]);
             })
-            .OrderBy(draft => draft.RecipientEmail, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

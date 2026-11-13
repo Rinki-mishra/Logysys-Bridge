@@ -120,9 +120,11 @@ public static class AddressLocator
 
         string? city = null;
         string? postal = zip?.Value ?? pin?.Value;
+        // Longer phrases first so "IL 60606" is removed before bare "IL".
         var remove = new[] { country?.Text, state?.Text, zip?.Text, pin?.Text }
             .Where(text => !string.IsNullOrEmpty(text))
             .Select(text => text!)
+            .OrderByDescending(text => text.Length)
             .ToList();
         for (var index = anchor; index >= 0 && index >= anchor - 3; index--)
         {

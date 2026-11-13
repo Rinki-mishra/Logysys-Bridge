@@ -1,0 +1,96 @@
+@model LogisysOrgConverter.Pages.Runs.ResultRowsModel
+@using LogisysOrgConverter.Data
+@{
+    var runId = Model.RunId;
+    var rows = Model.Rows;
+    var pendingElsewhere = Model.PendingElsewhere;
+}
+@if (rows.Count == 0)
+{
+    <p class="banner ok" role="status">None in this group.</p>
+}
+else
+{
+    <div class="table-wrap flat">
+        <table>
+            <thead>
+                <tr>
+                    <th>Row</th>
+                    <th>Organisation</th>
+                    <th>File</th>
+                    <th>Branch name</th>
+                    <th>Country</th>
+                    <th>Requestor</th>
+                    <th>Result</th>
+                    <th>Logi-Sys</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in rows)
+                {
+                    <tr class="@(row.Status is RowStatuses.Merged or RowStatuses.Update or RowStatuses.Approval ? "merged" : row.Status is RowStatuses.Held or RowStatuses.Rejected ? "held" : row.ImportStatus == ImportStatuses.Failed ? "held" : "ready")">
+                        <td>@row.SourceRowNumber</td>
+                        <td>@(string.IsNullOrWhiteSpace(row.OrganisationName) ? "—" : row.OrganisationName)</td>
+                        <td>@(string.IsNullOrWhiteSpace(row.Template) ? "—" : row.Template)</td>
+                        <td>@(string.IsNullOrWhiteSpace(row.BranchName) ? "—" : row.BranchName)</td>
+                        <td>@(string.IsNullOrWhiteSpace(row.Country) ? "—" : row.Country)</td>
+                        <td>
+                            @(row.RequesterName ?? "—")
+                            <span>@(row.RequesterEmail ?? "No email in column B")</span>
+                        </td>
+                        <td>
+                            <strong>@(row.Status switch
+                            {
+                                RowStatuses.Update => "Address update",
+                                RowStatuses.Approval => "Waiting for approval",
+                                RowStatuses.Rejected => "Not approved",
+                                RowStatuses.Merged => "Merged",
+                                _ => row.Status
+                            })</strong>
+                            @if (!string.IsNullOrWhiteSpace(row.Reason))
+                            {
+                                <span>@row.Reason</span>
+                            }
+                            @if (pendingElsewhere.TryGetValue(row.Id, out var pending))
+                            {
+                                <span class="warning">@pending</span>
+                            }
+                        </td>
+                        <td>
+                            @if (row.Status == RowStatuses.Ready)
+                            {
+                                <strong>@(row.ImportStatus ?? "Not imported yet")</strong>
+                                @if (!string.IsNullOrWhiteSpace(row.ImportMessage))
+                                {
+                                    <span>@row.ImportMessage</span>
+                                }
+                                @if (row.EmailedAtUtc is not null)
+                                {
+                                    <span>Emailed @DetailModel.IndiaTime(row.EmailedAtUtc.Value).ToString("d MMM, HH:mm") IST</span>
+                                }
+                                else
+                                {
+                                    <form method="post" asp-page="/Runs/Detail" asp-page-handler="Mark" asp-route-id="@runId" class="mark-form">
+                                        <input type="hidden" name="rowId" value="@row.Id" />
+                                        @if (row.ImportStatus != ImportStatuses.Created)
+                                        {
+                                            <button type="submit" name="status" value="@ImportStatuses.Created" class="small">Mark created</button>
+                                        }
+                                        @if (row.ImportStatus != ImportStatuses.Failed)
+                                        {
+                                            <button type="submit" name="status" value="@ImportStatuses.Failed" class="small ghost">Mark failed</button>
+                                        }
+                                    </form>
+                                }
+                            }
+                            else
+                            {
+                                <text>—</text>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

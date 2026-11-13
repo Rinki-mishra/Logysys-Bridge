@@ -1,0 +1,123 @@
+@page
+@model LogisysOrgConverter.Pages.Google.IndexModel
+@using LogisysOrgConverter.Pages.Runs
+@{
+    ViewData["Title"] = "Google Drive";
+}
+
+<section class="panel">
+    <p class="eyebrow">GST certificates</p>
+    <h1>Read GSTINs from the uploaded GST certificates</h1>
+    <p class="lead">
+        The request form stores each GST certificate in Google Drive (the GST Document column). When a sheet is converted,
+        the app opens every certificate, reads the GSTIN and puts it in REG-GSTIN (Reg tab, GSTIN) for India organisations.
+        If the certificate and the form disagree, the certificate wins and the run page says so.
+    </p>
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <p class="banner ok" role="status">@Model.Message</p>
+    }
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p class="banner" role="alert">@Model.ErrorMessage</p>
+    }
+    @if (!Model.CanRead)
+    {
+        <p class="banner" role="status">Neither visitor access nor a Google sign-in is set up, so GSTINs come only from the form.</p>
+    }
+</section>
+
+<section class="panel step">
+    <h2>Visitor access with the emailed code</h2>
+    @if (!Model.VisitorConfigured)
+    {
+        <p class="lead">
+            Not set up. Fill the <code>Microsoft</code> section of <code>appsettings.Local.json</code> (tenant ID, client ID, client secret and the mailbox)
+            and restart the app. The Azure app needs the Microsoft Graph application permission <strong>Mail.Read</strong> with admin consent.
+        </p>
+    }
+    else
+    {
+        <p>
+            The app opens the certificates as <strong>@Model.VisitorMailbox</strong>, the same way you do in the browser. When Google asks for a code,
+            the app reads it from that Outlook mailbox and types it in.
+        </p>
+        <p class="lead">
+            @if (Model.VisitorSessionSavedUtc is DateTime saved)
+            {
+                <text>Google session saved @DetailModel.IndiaTime(saved).ToString("d MMM yyyy, HH:mm") IST. Google keeps it for about 7 days, then the app asks for a new code by itself.</text>
+            }
+            else
+            {
+                <text>No Google session yet. The first certificate read will ask Google for a code; that conversion takes a minute or two longer.</text>
+            }
+        </p>
+        <div class="actions">
+            <form method="post" asp-page-handler="CheckOutlook" class="inline-form">
+                <button type="submit" class="ghost">Check Outlook access</button>
+            </form>
+            @if (Model.VisitorSessionSavedUtc is not null)
+            {
+                <form method="post" asp-page-handler="ForgetVisitor" class="inline-form">
+                    <button type="submit" class="ghost">Forget Google session</button>
+                </form>
+            }
+        </div>
+        <p class="lead">If Google shows a screen the app does not expect, it stops, uses the typed GSTIN, and saves a screenshot in <code>@Model.VisitorDebugFolder</code>.</p>
+    }
+</section>
+
+@if (Model.CanRead)
+{
+    <section class="panel step">
+        <h2>Try one certificate</h2>
+        <p class="lead">Paste a link from the GST Document column to see the GSTIN the app reads from it. With visitor access the first try may take a minute or two while the code arrives.</p>
+        <form method="post" asp-page-handler="Test" class="add-form">
+            <label>
+                <span>GST document link</span>
+                <input name="Link" value="@Model.Link" placeholder="https://drive.google.com/open?id=..." size="48" required />
+            </label>
+            <label>
+                <span>PAN (optional)</span>
+                <input name="Pan" value="@Model.Pan" placeholder="AABFS6109H" />
+            </label>
+            <button type="submit">Read GSTIN</button>
+        </form>
+        @if (Model.TestResult is { } result)
+        {
+            @if (result.Gstin is not null)
+            {
+                <p class="banner ok" role="status">GSTIN read from the certificate: <strong>@result.Gstin</strong></p>
+            }
+            else
+            {
+                <p class="banner" role="alert">Not read: @result.Problem.</p>
+            }
+        }
+    </section>
+}
+
+<details class="panel step">
+    <summary><strong>Alternative: sign in with a Google account</strong> (only if the form owner connects their own Google account)</summary>
+    @if (!Model.IsConfigured)
+    {
+        <p class="lead">Not set up. It needs a Google Cloud OAuth client (Web application) with the redirect URI <code>@Model.RedirectUri</code>, and its client ID and secret in the <code>Google</code> section of <code>appsettings.Local.json</code>.</p>
+    }
+    else if (Model.Connection is { } connection)
+    {
+        <p>
+            Connected as <strong>@connection.Email</strong>
+            since @DetailModel.IndiaTime(connection.ConnectedAtUtc).ToString("d MMM yyyy, HH:mm") IST. While connected, this is used instead of visitor access.
+        </p>
+        <form method="post" asp-page-handler="Disconnect" class="inline-form">
+            <button type="submit" class="ghost">Disconnect</button>
+        </form>
+    }
+    else
+    {
+        <p>Not connected.</p>
+        <form method="post" asp-page-handler="Connect" class="inline-form">
+            <button type="submit">Connect Google Drive</button>
+        </form>
+    }
+</details>

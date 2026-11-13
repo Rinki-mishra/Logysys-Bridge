@@ -38,18 +38,54 @@ dotnet test
 
 Upload each downloaded file in Logi-Sys under Directories → Organisations → Import.
 
+## Overseas agents need approval
+
+An overseas organisation whose type includes Agent (Overseas Agent, Sub-Agent) is not put in the overseas file. On the run page, under **Overseas agents**:
+
+1. **Send approval request** emails `Email:AgentApprover` (pankaj@tnpsfl.com) once, listing every waiting agent with its type, address, contact, WCA ID, agency agreement and requestor.
+2. When the reply comes, click **Mark approved** or **Mark not approved** on each agent.
+3. Approved agents are in **Download approved agents file** (overseas template). Import it in Logi-Sys and record the result on the **Overseas agent file** card; the requestor is then emailed like any other created organisation. Agents not approved are never created.
+
+Held rows stay held; an agent is only sent for approval once its data passes the usual checks.
+
 ## Ledger link
 
 Organisations with column I ("to be invoiced") = Yes get a ledger-link checklist on the run page, following "Document required during Ledger link – Logisys":
 
-- **India**: shipper/consignee → receivable (KYC on letterhead, PAN, TAN, GST mandatory; IEC; COI). Agent/carrier/service → payable (GST, PAN, MSME or non-MSME declaration). Transport/commission → Aadhaar, PAN, cancelled cheque, GST/MSME.
+- **India**: shipper/consignee → KYC, PAN, TAN, GST (if TAN is missing, ask for the TDS challan). Carrier/agent → PAN, GST, MSME (if MSME is not available, ask for a non-MSME declaration). A typed number without its document still counts as missing.
 - **Overseas**: shipper/consignee → receivable (direct billing and credit approval, credit form, tax certificate, W9 for the USA, approval from JP sir with reporting manager). Agent → approval from Shivangi (sea) / Aditya (air), WCA ID, agency agreement. Carrier/service → payable (Form 41, formerly 10F, or agency agreement; TRC or agency agreement).
 - **Dubai**: agent as overseas agent; others VAT and trade licence, or agency agreement.
 - **Nepal**: KYC in SAR format, PAN; mark OVR RECEIVABLE.
 
 Documents given in the form (KYC, PAN, TAN, GST, IEC, WCA, agency agreement) are checked; the rest are listed to collect, with the approvals. **Download ledger checklist** gives the same as a sheet, and **Mark ledger linked** records when it is done.
 
-**Send document requests** emails each requestor (column B) once, listing per organisation the documents still needed (missing from the form, or not asked in it), the approvals, and the notes (TAN/TDS, non-MSME declaration). Organisations already ledger linked or already asked are skipped.
+**Send document requests** emails one message per organisation to its requestor (column B), listing the documents still needed (missing from the form, or not asked in it), the approvals, and the notes (TAN/TDS, non-MSME declaration). Organisations already ledger linked or already asked are skipped.
+
+## GSTIN from the GST certificate
+
+For India organisations the app opens the GST certificate linked in column AP (GST Document, a Google Drive upload), reads the GSTIN next to "Registration Number" and puts it in `REG-GSTIN`, which Logi-Sys imports into Reg → GSTIN. A number only counts if its last (check) character is correct.
+
+- Certificate read, form blank or different → the certificate's GSTIN is used; the run page shows what the form said.
+- Certificate can't be read (not connected, no access, scanned image, not a PDF) → the GSTIN typed in column AO is used and the run page says why.
+- The usual PAN and state-code checks still apply to the result.
+
+The links are private, so the app reads them with a Google account you connect once on the **Google Drive** page:
+
+1. In [Google Cloud console](https://console.cloud.google.com/projectcreate), signed in as the account that owns the form uploads, create a project and enable **Google Drive API**.
+2. OAuth consent screen: user type **Internal**.
+3. Credentials → **OAuth client ID** → **Web application**, authorised redirect URI `http://localhost:43123/Google/Callback`.
+4. Put the client ID and secret in `appsettings.Local.json`, restart, open the app at `http://localhost:43123`, and click **Connect Google Drive**:
+
+```json
+"Google": {
+  "ClientId": "....apps.googleusercontent.com",
+  "ClientSecret": "...",
+  "LoginHint": "riya@tnpsfl.com",
+  "RedirectUri": "http://localhost:43123/Google/Callback"
+}
+```
+
+The app asks for read-only Drive access. The sign-in is stored encrypted in the `GoogleConnections` table; **Disconnect** removes it and revokes it at Google. Scanned or photographed certificates are not read (no OCR); they fall back to the typed GSTIN.
 
 ## Emailing the requestor
 

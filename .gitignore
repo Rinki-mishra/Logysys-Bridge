@@ -11,3 +11,5 @@ OutgoingMail/
 appsettings.Local.json
 google-token.json
 GoogleSession/
+SoftlinkSession/
+App_Data/

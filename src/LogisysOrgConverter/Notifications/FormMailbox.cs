@@ -19,6 +19,7 @@ public sealed partial class FormMailbox
     private readonly SemaphoreSlim _tokenGate = new(1, 1);
     private string? _token;
     private DateTimeOffset _tokenExpires;
+    private string? _spreadsheetFolderId;
 
     public FormMailbox(IHttpClientFactory httpClientFactory, IOptions<MailboxOptions> options)
     {
@@ -232,6 +233,44 @@ public sealed partial class FormMailbox
 
     private async Task<string?> FindFolderIdAsync(string name, CancellationToken cancellationToken)
     {
+        if (string.Equals(name, "Spreadsheet", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(_spreadsheetFolderId))
+        {
+            return _spreadsheetFolderId;
+        }
+
+        // Prefer a direct name filter so Create/Load does not walk the whole mailbox tree.
+        var filtered = string.Concat(
+            "https://graph.microsoft.com/v1.0/users/",
+            Uri.EscapeDataString(_options.Mailbox.Trim()),
+            "/mailFolders?$filter=",
+            Uri.EscapeDataString($"displayName eq '{name.Replace("'", "''", StringComparison.Ordinal)}'"),
+            "&$top=10");
+        try
+        {
+            using var matched = await SendAsync(HttpMethod.Get, filtered, null, cancellationToken);
+            if (matched.RootElement.TryGetProperty("value", out var hits))
+            {
+                foreach (var folder in hits.EnumerateArray())
+                {
+                    var id = folder.GetProperty("id").GetString();
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        if (string.Equals(name, "Spreadsheet", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _spreadsheetFolderId = id;
+                        }
+
+                        return id;
+                    }
+                }
+            }
+        }
+        catch (FormSheetException)
+        {
+            // Some tenants reject $filter on mailFolders; fall back to a shallow walk.
+        }
+
         var url = string.Concat(
             "https://graph.microsoft.com/v1.0/users/",
             Uri.EscapeDataString(_options.Mailbox.Trim()),
@@ -253,6 +292,11 @@ public sealed partial class FormMailbox
             var id = folder.GetProperty("id").GetString();
             if (string.Equals(displayName, name, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(id))
             {
+                if (string.Equals(name, "Spreadsheet", StringComparison.OrdinalIgnoreCase))
+                {
+                    _spreadsheetFolderId = id;
+                }
+
                 return id;
             }
 

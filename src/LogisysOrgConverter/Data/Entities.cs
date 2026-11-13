@@ -109,6 +109,32 @@ public sealed class ConversionRunRow
     public DateTime? LedgerLinkedAtUtc { get; set; }
 
     public DateTime? LedgerRequestedAtUtc { get; set; }
+
+    // Softlink Account Info Customer/Vendor G/L link (India receivable/payable).
+    public string? LedgerLinkStatus { get; set; }
+
+    public string? LedgerLinkMessage { get; set; }
+
+    // Template cells kept for overseas agents, whose file is only written once they are approved.
+    public string? CellsJson { get; set; }
+
+    // Google Drive document links from the form, for Softlink Notes attachments.
+    public string? DocumentsJson { get; set; }
+
+    public string? NotesUploadStatus { get; set; }
+
+    public string? NotesUploadMessage { get; set; }
+
+    // Softlink Account Info → Cash On Delivery (Excel import does not set this checkbox).
+    public string? CodMarkStatus { get; set; }
+
+    public string? CodMarkMessage { get; set; }
+
+    public string? ApprovalDetails { get; set; }
+
+    public DateTime? ApprovalRequestedAtUtc { get; set; }
+
+    public DateTime? ApprovalDecidedAtUtc { get; set; }
 }
 
 public sealed class ExistingOrganisation
@@ -122,6 +148,18 @@ public sealed class ExistingOrganisation
     public DateTime AddedAtUtc { get; set; }
 }
 
+public sealed class GoogleConnection
+{
+    public int Id { get; set; }
+
+    public string Email { get; set; } = string.Empty;
+
+    // Encrypted with ASP.NET Core data protection; never stored in plain text.
+    public string ProtectedRefreshToken { get; set; } = string.Empty;
+
+    public DateTime ConnectedAtUtc { get; set; }
+}
+
 public static class RowStatuses
 {
     public const string Ready = "Ready";
@@ -131,6 +169,19 @@ public static class RowStatuses
     public const string Merged = "Merged";
 
     public const string Update = "Update";
+
+    public const string Approval = "Approval";
+
+    public const string Rejected = "Rejected";
+}
+
+public static class RowTemplates
+{
+    public const string India = "India";
+
+    public const string Overseas = "Overseas";
+
+    public const string OverseasAgent = "Overseas agent";
 }
 
 public static class ImportStatuses

@@ -322,3 +322,56 @@ code { background: var(--paper); padding: 0.1rem 0.35rem; border-radius: 6px; }
     .ledger-items li { flex-direction: column; gap: 0.2rem; }
     .ledger-card summary span { margin-left: 0; display: block; }
 }
+
+.result-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 1rem 0 0.8rem;
+}
+
+.result-tab {
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    gap: 0.45rem;
+}
+
+.result-tab span {
+    display: inline-flex;
+    min-width: 1.6rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.result-tab[aria-pressed="true"] {
+    background: var(--green);
+    color: #fff;
+    border-color: var(--green);
+}
+
+.result-tab[aria-pressed="true"] span {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.result-tab[data-result-tab="held"][aria-pressed="true"] {
+    background: var(--held);
+    border-color: var(--held);
+}
+
+.result-help {
+    margin: 0 0 0.7rem;
+    color: var(--muted);
+}
+
+.result-panel .table-wrap.flat {
+    margin-top: 0;
+}
+
+@media (max-width: 800px) {
+    .result-tab { width: auto; }
+}

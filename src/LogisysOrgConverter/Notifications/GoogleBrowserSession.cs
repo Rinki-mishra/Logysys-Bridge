@@ -41,6 +41,94 @@ public sealed partial class GoogleBrowserSession
         }
     }
 
+    // Uses the same Edge GoogleSession that exports the form sheet (visitor mailbox has no Google account).
+    public async Task<(string Name, string MimeType, byte[] Content)> DownloadDriveFileAsync(string fileId, CancellationToken cancellationToken)
+    {
+        var map = await DownloadDriveFilesAsync([fileId], cancellationToken);
+        if (!map.TryGetValue(fileId, out var file))
+        {
+            throw new FormSheetException("Google Drive did not return the file. Open Load spreadsheet from mail once so GoogleSession is signed in, then try again.");
+        }
+
+        return file;
+    }
+
+    // One GoogleSession Edge for the whole batch — launching Edge per file made Attach hang for minutes.
+    public async Task<IReadOnlyDictionary<string, (string Name, string MimeType, byte[] Content)>> DownloadDriveFilesAsync(
+        IReadOnlyList<string> fileIds,
+        CancellationToken cancellationToken)
+    {
+        var unique = fileIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        var results = new Dictionary<string, (string Name, string MimeType, byte[] Content)>(StringComparer.Ordinal);
+        if (unique.Count == 0)
+        {
+            return results;
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(_profileDir);
+            using var playwright = await Playwright.CreateAsync();
+            var channel = string.IsNullOrWhiteSpace(_visitor.BrowserChannel) ? "msedge" : _visitor.BrowserChannel.Trim();
+            await using var context = await playwright.Chromium.LaunchPersistentContextAsync(_profileDir, new BrowserTypeLaunchPersistentContextOptions
+            {
+                Channel = channel,
+                Headless = true,
+                AcceptDownloads = true,
+                Args = ["--disable-blink-features=AutomationControlled"],
+                IgnoreDefaultArgs = ["--enable-automation"]
+            });
+            var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+            page.SetDefaultTimeout(60_000);
+
+            foreach (var fileId in unique)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var response = await page.Context.APIRequest.GetAsync(
+                        "https://drive.google.com/uc?export=download&id=" + Uri.EscapeDataString(fileId),
+                        new APIRequestContextOptions { MaxRedirects = 10, Timeout = 90_000 });
+                    var body = await response.BodyAsync();
+                    response.Headers.TryGetValue("content-type", out var contentType);
+                    contentType ??= "application/octet-stream";
+                    if (!response.Ok || body.Length < 4 || (body[0] == (byte)'<' && contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    var name = fileId;
+                    if (response.Headers.TryGetValue("content-disposition", out var disposition))
+                    {
+                        var match = Regex.Match(disposition, "filename\\*?=(?:UTF-8''|\"?)([^\";]+)", RegexOptions.IgnoreCase);
+                        if (match.Success)
+                        {
+                            name = Uri.UnescapeDataString(match.Groups[1].Value.Trim('"'));
+                        }
+                    }
+
+                    results[fileId] = (name, contentType.Split(';')[0].Trim(), body);
+                }
+                catch (Exception ex) when (ex is PlaywrightException or TimeoutException or HttpRequestException)
+                {
+                    // Skip this file; caller records failure per organisation.
+                }
+            }
+
+            if (results.Count == 0)
+            {
+                throw new FormSheetException("Google Drive did not return any files. Open Load spreadsheet from mail once so GoogleSession is signed in, then try again.");
+            }
+
+            return results;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<byte[]> RunAsync(string kind, string sourceId, string? openUrl, CancellationToken cancellationToken)
     {
         var target = !string.IsNullOrWhiteSpace(openUrl)

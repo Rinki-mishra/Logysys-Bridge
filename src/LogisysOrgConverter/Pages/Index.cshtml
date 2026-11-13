@@ -5,18 +5,9 @@
 }
 
 <section class="panel">
-    <p class="eyebrow">Google Form</p>
-    <h1>Read the response sheet and create the files Logi-Sys accepts.</h1>
-    <p class="lead">
-        @if (string.IsNullOrEmpty(Model.MailboxAddress))
-        {
-            <text>The organisation form keeps its answers in a private Google spreadsheet. This page reads that sheet and writes the India and overseas files.</text>
-        }
-        else
-        {
-            <text>Mail to @Model.MailboxAddress brings each new organisation-form response. The answers are in a private Google spreadsheet shared with that address. This page reads the sheet and writes the India and overseas files, with the same checks as an uploaded workbook.</text>
-        }
-    </p>
+    <p class="eyebrow">Client workbook</p>
+    <h1>Create the files Logi-Sys accepts.</h1>
+    <p class="lead">Load Organisation Creation Request Form (Responses) into Choose File. Edge opens the Form Responses 1 tab. The verification code is read from the mailbox and entered. Then create the Logi-Sys files.</p>
 
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
@@ -28,68 +19,6 @@
         <p class="banner" role="alert">@Model.ErrorMessage</p>
     }
 
-    @if (!string.IsNullOrEmpty(Model.MailboxError))
-    {
-        <p class="banner" role="alert">@Model.MailboxError</p>
-    }
-    else if (Model.Notices.Count == 0)
-    {
-        <p class="banner">No organisation-form mail was found in the mailbox.</p>
-    }
-    else
-    {
-        <div class="table-wrap flat">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Form</th>
-                        <th>Last mail</th>
-                        <th>Requestor</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var notice in Model.Notices)
-                    {
-                        <tr>
-                            <td>
-                                @notice.Title
-                                <span>@(notice.Kind == "sheet" ? "Response spreadsheet" : "Form responses")</span>
-                            </td>
-                            <td>@notice.ReceivedAtUtc.ToLocalTime().ToString("dd MMM yyyy, HH:mm")</td>
-                            <td>@(string.IsNullOrEmpty(notice.RequestorEmail) ? "—" : notice.RequestorEmail)</td>
-                            <td>
-                                <form method="post" asp-page-handler="Sheet" data-convert-form>
-                                    <input type="hidden" name="kind" value="@notice.Kind" />
-                                    <input type="hidden" name="sourceId" value="@notice.SourceId" />
-                                    <input type="hidden" name="title" value="@notice.Title" />
-                                    <button type="submit" class="small">Create Logi-Sys files</button>
-                                </form>
-                                <a class="text-link" href="@notice.OpenUrl" target="_blank" rel="noopener">Open in Google</a>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-
-    <p class="connect-line">
-        @if (Model.GoogleConnected)
-        {
-            <text>Signed in as the account that has the form.</text>
-        }
-        else if (!string.IsNullOrEmpty(Model.MailboxAddress))
-        {
-            <span>@Model.MailboxAddress already has the sheet. Creating the files opens it, requests the code to that mailbox, and enters the code.</span>
-        }
-    </p>
-</section>
-
-<section class="panel step">
-    <h2>Client workbook</h2>
-    <p class="lead">Load Organisation Creation Request Form (Responses) into Choose File. Edge opens the Form Responses 1 tab. The verification code is read from the mailbox and entered. Then create the Logi-Sys files.</p>
-
     <form method="post" enctype="multipart/form-data" data-convert-form>
         <label class="file-field" for="client-file">
             <span>Client workbook</span>
@@ -99,6 +28,16 @@
         <button type="submit">Create Logi-Sys files</button>
         <p class="connect-line" data-load-status></p>
     </form>
+    <p class="lead">
+        @if (Model.DriveAccount is not null)
+        {
+            <text>GST certificates are read from Google Drive as @Model.DriveAccount and their GSTIN goes into REG-GSTIN.</text>
+        }
+        else
+        {
+            <text>GST certificates are not being read because Google Drive is not connected. <a class="text-link" asp-page="/Google/Index">Connect Google Drive</a></text>
+        }
+    </p>
 </section>
 
 <section class="steps">
