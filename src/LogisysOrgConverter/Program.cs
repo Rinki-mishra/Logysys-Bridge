@@ -66,6 +66,13 @@ builder.Services.AddScoped<OrganisationCodMarker>();
 builder.Services.AddScoped<OrganisationLedgerLinker>();
 builder.Services.AddScoped<OrganisationImportUploader>();
 builder.Services.AddScoped<SoftlinkOrganisationFinisher>();
+builder.Services.AddScoped<SoftlinkPipeline>();
+builder.Services.AddScoped<RunOutputWriter>();
+builder.Services.AddSingleton<SoftlinkPipelineQueue>();
+builder.Services.AddHostedService<SoftlinkPipelineWorker>();
+builder.Services.Configure<AutomationOptions>(builder.Configuration.GetSection(AutomationOptions.Section));
+builder.Services.AddHostedService<MailSpreadsheetPoller>();
+builder.Services.AddHostedService<ClientWorkbookWatcher>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 20 * 1024 * 1024;

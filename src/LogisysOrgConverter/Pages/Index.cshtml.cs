@@ -2,9 +2,11 @@ using System.Text.RegularExpressions;
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
 using LogisysOrgConverter.GoogleDrive;
+using LogisysOrgConverter.Logisys;
 using LogisysOrgConverter.Notifications;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace LogisysOrgConverter.Pages;
 
@@ -15,20 +17,49 @@ public partial class IndexModel : PageModel
     private readonly GoogleSheets _google;
     private readonly GoogleDriveAccess _drive;
     private readonly GoogleVisitorAccess _visitor;
+    private readonly SoftlinkPipelineQueue _pipelineQueue;
+    private readonly RunOutputWriter _outputs;
+    private readonly AutomationOptions _automation;
+    private readonly IWebHostEnvironment _environment;
 
     public IndexModel(
         ConversionStore store,
         FormMailbox mailbox,
         GoogleSheets google,
         GoogleDriveAccess drive,
-        GoogleVisitorAccess visitor)
+        GoogleVisitorAccess visitor,
+        SoftlinkPipelineQueue pipelineQueue,
+        RunOutputWriter outputs,
+        IOptions<AutomationOptions> automation,
+        IWebHostEnvironment environment)
     {
         _store = store;
         _mailbox = mailbox;
         _google = google;
         _drive = drive;
         _visitor = visitor;
+        _pipelineQueue = pipelineQueue;
+        _outputs = outputs;
+        _automation = automation.Value;
+        _environment = environment;
     }
+
+    public bool AutomationEnabled => _automation.Enabled;
+
+    public bool AutomationPollsMailbox => _automation.Enabled && _automation.PollMailbox;
+
+    public bool AutomationWatchesFolder => _automation.Enabled && _automation.WatchInboxFolder;
+
+    public int AutomationMailPollMinutes => Math.Clamp(_automation.MailPollMinutes, 1, 180);
+
+    public string AutomationInboxPath =>
+        Path.IsPathRooted(_automation.InboxFolder)
+            ? _automation.InboxFolder
+            : Path.GetFullPath(Path.Combine(_environment.ContentRootPath, _automation.InboxFolder));
+
+    public string AutomationMailbox => _mailbox.Address;
+
+    public string AutomationOutputFolder => _outputs.RootFolder;
 
     public string? DriveAccount { get; private set; }
 
@@ -88,6 +119,7 @@ public partial class IndexModel : PageModel
             stream.Position = 0;
             EnsureWorkbook(stream);
             var id = await _store.ConvertAsync(ClientFile.FileName, stream, cancellationToken);
+            await AfterConvertAsync(id, cancellationToken);
             return RedirectToPage("/Runs/Detail", new { id });
         }
         catch (ClientSheetException ex)
@@ -161,6 +193,7 @@ public partial class IndexModel : PageModel
             await using var stream = new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
             EnsureWorkbook(stream);
             var id = await _store.ConvertAsync(notice.FileName, stream, cancellationToken);
+            await AfterConvertAsync(id, cancellationToken);
             return RedirectToPage("/Runs/Detail", new { id });
         }
         catch (Exception ex) when (ex is FormSheetException or ClientSheetException)
@@ -170,6 +203,26 @@ public partial class IndexModel : PageModel
             await LoadDriveAccountAsync(cancellationToken);
             return Page();
         }
+    }
+
+    private async Task AfterConvertAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _outputs.WriteAfterConvertAsync(runId, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Convert already succeeded; Softlink can still run even if the local folder write fails.
+        }
+
+        var run = await _store.GetRunAsync(runId, cancellationToken);
+        if (run is null || (run.IndiaCount <= 0 && run.OverseasCount <= 0))
+        {
+            return;
+        }
+
+        _pipelineQueue.Enqueue(runId);
     }
 
     private static bool LooksLikeOrganisationResponses(string? title) =>

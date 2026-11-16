@@ -19,6 +19,8 @@ public class DetailModel : PageModel
     private readonly OrganisationLedgerLinker _ledgerLink;
     private readonly OrganisationImportUploader _import;
     private readonly SoftlinkOrganisationFinisher _finish;
+    private readonly SoftlinkPipeline _pipeline;
+    private readonly SoftlinkPipelineQueue _pipelineQueue;
     private readonly LogisysBrowserSession _softlink;
 
     public DetailModel(
@@ -30,6 +32,8 @@ public class DetailModel : PageModel
         OrganisationLedgerLinker ledgerLink,
         OrganisationImportUploader import,
         SoftlinkOrganisationFinisher finish,
+        SoftlinkPipeline pipeline,
+        SoftlinkPipelineQueue pipelineQueue,
         LogisysBrowserSession softlink)
     {
         _store = store;
@@ -40,6 +44,8 @@ public class DetailModel : PageModel
         _ledgerLink = ledgerLink;
         _import = import;
         _finish = finish;
+        _pipeline = pipeline;
+        _pipelineQueue = pipelineQueue;
         _softlink = softlink;
     }
 
@@ -66,6 +72,8 @@ public class DetailModel : PageModel
     [TempData]
     public string? Message { get; set; }
 
+    public SoftlinkPipelineJobStatus? PipelineStatus { get; private set; }
+
     public async Task<IActionResult> OnGetAsync(Guid id, CancellationToken cancellationToken)
     {
         Run = await _store.GetRunAsync(id, cancellationToken);
@@ -74,6 +82,7 @@ public class DetailModel : PageModel
             return NotFound();
         }
 
+        PipelineStatus = _pipelineQueue.GetStatus(id);
         Drafts = await _notifications.GetDraftsAsync(id, cancellationToken);
         Sent = await _notifications.GetNotificationsAsync(id, cancellationToken);
         LedgerDrafts = await _notifications.GetLedgerDraftsAsync(id, cancellationToken);
@@ -206,6 +215,36 @@ public class DetailModel : PageModel
             _ => "softlink-finish"
         };
         return Task.FromResult<IActionResult>(RedirectToPage(null, null, new { id }, fragment));
+    }
+
+    // Phase A test hook: same Softlink steps as today, chained (Upload → Mark Created → Finish → India G/L).
+    [RequestTimeout(900_000)]
+    public async Task<IActionResult> OnPostRunSoftlinkPipelineAsync(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Message = (await _pipeline.RunAsync(id, cancellationToken)).Message;
+        }
+        catch (LogisysException ex)
+        {
+            Message = ex.Message;
+        }
+        catch (GoogleDriveException ex)
+        {
+            Message = ex.Message;
+        }
+        catch (FormSheetException ex)
+        {
+            Message = ex.Message;
+        }
+        catch (Microsoft.Playwright.PlaywrightException ex)
+        {
+            Message = ex.Message.Contains("closed", StringComparison.OrdinalIgnoreCase)
+                ? "The Softlink Edge window was closed before the Softlink pipeline finished. Sign in again, leave Edge open, then run the pipeline again."
+                : "Softlink browser error: " + ex.Message.Split('\n')[0];
+        }
+
+        return RedirectToPage(null, null, new { id }, "softlink-import");
     }
 
     // Softlink Organizations → ⋮ → Upload Organizations (India, then overseas).

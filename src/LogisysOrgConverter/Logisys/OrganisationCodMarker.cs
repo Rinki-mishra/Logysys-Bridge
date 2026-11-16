@@ -131,6 +131,15 @@ public sealed class OrganisationCodMarker
                     catch (PlaywrightException)
                     {
                     }
+
+                    // Close stuck Organization Master so the next org is not blocked on Address/General.
+                    try
+                    {
+                        await SoftlinkOrgNavigation.CloseOrgMasterPagesAsync(page.Context, keep: page);
+                    }
+                    catch (PlaywrightException)
+                    {
+                    }
                 }
 
                 await _db.SaveChangesAsync(token);
@@ -182,8 +191,18 @@ public sealed class OrganisationCodMarker
         // Do NOT click "General" after Account Info — that jumps back to Address and hides COD.
         if (!await EnsureAccountInfoAsync(page))
         {
-            throw new LogisysException(
-                "Account Info tab did not open (still on Address/General). Softlink tab strip was slow — leave Organization Master open and Finish again.");
+            // Softlink often stays on Address after Edit; re-click Edit once, then force Account Info again.
+            if (!await IsAlreadyEditingAsync(page))
+            {
+                await SoftlinkClickEditAsync(page);
+                await page.WaitForTimeoutAsync(1_000);
+            }
+
+            if (!await EnsureAccountInfoAsync(page))
+            {
+                throw new LogisysException(
+                    "Account Info tab did not open (still on Address/General). Softlink tab strip was slow — leave Organization Master open and Finish again.");
+            }
         }
 
         if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
@@ -404,7 +423,11 @@ public sealed class OrganisationCodMarker
                   const a = document.getElementById('tsMainLink6') || (li && li.querySelector('a'));
                   const td = a && a.querySelector('td');
                   // Softlink binds tab switching on the LI / inner A / TD inconsistently across builds.
-                  return fire(td) || fire(a) || fire(li);
+                  if (fire(td) || fire(a) || fire(li)) return true;
+                  // Overseas / Airlines masters sometimes only respond to the visible tab label.
+                  const tabs = Array.from(document.querySelectorAll('a, td, span, li'));
+                  const label = tabs.find(el => ((el.textContent || '').trim() === 'Account Info'));
+                  return fire(label);
                 }
                 """);
             if (!clicked)
@@ -415,6 +438,18 @@ public sealed class OrganisationCodMarker
         catch (PlaywrightException)
         {
             await ClickAccountInfoTabAsync(page);
+        }
+
+        try
+        {
+            var tab = page.Locator("#tsMainLink6, #tsMainItem6 a").First;
+            if (await tab.CountAsync() > 0 && await tab.IsVisibleAsync())
+            {
+                await tab.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 3_000 });
+            }
+        }
+        catch (PlaywrightException)
+        {
         }
     }
 

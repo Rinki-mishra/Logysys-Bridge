@@ -340,7 +340,11 @@ public sealed partial class GoogleBrowserSession
 
     private async Task RequestCodeAndSignInAsync(IPage page, CancellationToken cancellationToken)
     {
-        var hint = string.IsNullOrWhiteSpace(_google.LoginHint) ? _mailbox.Address : _google.LoginHint.Trim();
+        // Only auto-fill Google:LoginHint. Do NOT use the Outlook mailbox address here —
+        // mailbox (e.g. riya@awgmen.com) receives codes but is often not a Google account.
+        // When LoginHint is empty, reuse GoogleSession cookies / let you pick an account.
+        var loginEmail = (_google.LoginHint ?? string.Empty).Trim();
+        var codeMailbox = string.IsNullOrWhiteSpace(_mailbox.Address) ? loginEmail : _mailbox.Address.Trim();
         var minutes = _visitor.CodeWaitMinutes < 1 ? 3 : _visitor.CodeWaitMinutes;
         var deadline = DateTimeOffset.UtcNow.AddMinutes(minutes);
         var giveUpControls = DateTimeOffset.UtcNow.AddSeconds(25);
@@ -356,7 +360,7 @@ public sealed partial class GoogleBrowserSession
                 return;
             }
 
-            if (!emailSubmitted && await SubmitEmailAsync(page, hint))
+            if (!string.IsNullOrWhiteSpace(loginEmail) && !emailSubmitted && await SubmitEmailAsync(page, loginEmail))
             {
                 emailSubmitted = true;
                 requestedAt = DateTimeOffset.UtcNow;
@@ -367,7 +371,7 @@ public sealed partial class GoogleBrowserSession
                 requestedAt = DateTimeOffset.UtcNow;
             }
 
-            if (requestedAt is DateTimeOffset sent && usedCode is null)
+            if (requestedAt is DateTimeOffset sent && usedCode is null && !string.IsNullOrWhiteSpace(codeMailbox))
             {
                 var code = await _mailbox.RecentSignInCodeAsync(sent, cancellationToken);
                 if (!string.IsNullOrEmpty(code) && await EnterCodeAsync(page, code))
@@ -377,14 +381,20 @@ public sealed partial class GoogleBrowserSession
             }
             else if (requestedAt is null && DateTimeOffset.UtcNow > giveUpControls)
             {
-                throw new FormSheetException("Edge is open at " + page.Url + ". The verification box was not found. Use " + hint + " in that window, then load the spreadsheet again.");
+                var who = string.IsNullOrWhiteSpace(loginEmail)
+                    ? "the Google account that already has access (GoogleSession)"
+                    : loginEmail;
+                throw new FormSheetException(
+                    "Edge is open at " + page.Url + ". The verification box was not found. Sign in as " + who + " in that window, then load the spreadsheet again.");
             }
 
             await page.WaitForTimeoutAsync(2000);
         }
 
+        var target = string.IsNullOrWhiteSpace(loginEmail) ? codeMailbox : loginEmail;
         throw new FormSheetException(
-            "Google did not accept the code sent to " + hint + ". Open the sheet again so a new code can be requested.");
+            "Google did not accept the code" + (string.IsNullOrWhiteSpace(target) ? "." : " sent for " + target + ".")
+            + " Open Load spreadsheet from mail once so GoogleSession is signed in, then try again.");
     }
 
     private static async Task<bool> SubmitEmailAsync(IPage page, string email)
@@ -522,7 +532,8 @@ public sealed partial class GoogleBrowserSession
         if (text.Contains("You need permission", StringComparison.OrdinalIgnoreCase)
             || text.Contains("Request access", StringComparison.OrdinalIgnoreCase))
         {
-            throw new FormSheetException("Google opened the file, but this sign-in does not have access. Choose riya@awgmen.com in the Edge window.");
+            throw new FormSheetException(
+                "Google opened the file, but this sign-in does not have access. In Edge choose the Google account that can open the sheet (or open Load spreadsheet from mail once to refresh GoogleSession).");
         }
     }
 

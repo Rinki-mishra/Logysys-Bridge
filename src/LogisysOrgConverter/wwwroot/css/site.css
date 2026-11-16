@@ -199,6 +199,7 @@ td span { display: block; margin-top: 0.2rem; color: var(--muted); }
 .add-country { margin-top: 0.8rem; }
 
 .banner.ok { background: var(--ready-bg); color: var(--green-dark); }
+.banner.warn { background: var(--held-bg); color: var(--held); }
 
 .step { margin-top: 0.8rem; }
 

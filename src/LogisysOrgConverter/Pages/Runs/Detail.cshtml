@@ -45,6 +45,26 @@
     {
         <p class="banner ok" role="status">@Model.Message</p>
     }
+    @if (Model.PipelineStatus is { } pipeline)
+    {
+        var pipelineClass = pipeline.State switch
+        {
+            "Succeeded" => "ok",
+            "Failed" => "warn",
+            _ => "ok"
+        };
+        <p class="banner @pipelineClass" role="status">
+            Softlink pipeline: <strong>@pipeline.State</strong>
+            @if (!string.IsNullOrWhiteSpace(pipeline.Message))
+            {
+                <text> — @pipeline.Message</text>
+            }
+            else if (pipeline.State is "Queued" or "Running")
+            {
+                <text> — The service opens Softlink Edge (like Sign in before). Enter Security Code when asked, then leave Edge open. Refresh this page for status.</text>
+            }
+        </p>
+    }
 
     <div class="actions">
         @if (run.IndiaCount > 0)
@@ -78,23 +98,14 @@
 @if (run.IndiaCount > 0 || run.OverseasCount > 0)
 {
     <section class="panel step" id="softlink-import">
-        <p class="eyebrow">Softlink import</p>
-        <h2>Upload organisations into Logi-Sys</h2>
+        <p class="eyebrow">Softlink automation</p>
+        <h2>Logi-Sys Softlink steps run in the background</h2>
         <p class="lead">
-            Opens Softlink <strong>Organizations</strong>, clicks the ⋮ menu → <strong>Upload Organizations</strong>,
-            then uploads the India file first and the overseas file second (Type of Source: Organization Details).
-            1) Sign in to Softlink and leave Edge open.
-            2) Upload both files.
+            Softlink Upload → Mark Created → Finish (COD + Notes) → India G/L runs automatically after convert
+            or when the mailbox spreadsheet changes. The service opens Softlink Edge for Security Code / Log In
+            (same as the old Sign-in step) — you do not need to leave Edge open beforehand.
+            Softlink action buttons have been retired from this page; status below stays read-only.
         </p>
-        <div class="actions">
-            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
-                <input type="hidden" name="returnTo" value="softlink-import" />
-                <button type="submit" class="secondary">1. Sign in to Softlink</button>
-            </form>
-            <form method="post" asp-page-handler="UploadOrganisations" asp-route-id="@run.Id" class="send-form" data-upload-orgs>
-                <button type="submit">2. Upload India@(run.OverseasCount > 0 ? " + overseas" : "") to Softlink</button>
-            </form>
-        </div>
     </section>
 }
 
@@ -167,44 +178,19 @@
         .Where(row => !string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]"
             && row.ImportStatus == ImportStatuses.Created)
         .ToList();
-    var notePending = noteRows.Count(row => row.NotesUploadStatus != "Attached");
     var finishRows = run.Rows
         .Where(row => row.ImportStatus == ImportStatuses.Created)
         .ToList();
-    var finishPending = finishRows.Count(row =>
-        (row.CodMarkStatus != "Done" && row.CodMarkStatus != "Skipped")
-        || (!string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]" && row.NotesUploadStatus != "Attached"));
-    var wakazo = finishRows.FirstOrDefault(row =>
-        row.OrganisationName.Contains("Wakazo", StringComparison.OrdinalIgnoreCase));
 }
 
 @if (finishRows.Count > 0)
 {
     <section class="panel step" id="softlink-finish">
-        <p class="eyebrow">Softlink finish</p>
-        <h2>Complete new organisations in Logi-Sys</h2>
+        <p class="eyebrow">Softlink finish status</p>
+        <h2>COD and Notes for Created organisations</h2>
         <p class="lead">
-            Softlink Excel import creates the organisation but does not tick Cash On Delivery or add Notes.
-            After you import the India file and mark rows <strong>Created</strong> here:
-            1) Sign in to Softlink (leave Edge open).
-            2) <strong>Finish new organisations</strong> ticks Cash On Delivery (skipped when Credit Limit or Unlimited is set), then opens the Notes tab (second-to-last after KYC) → New → Attachment Choose File → uploads every document linked on the form (KYC, PAN, GST, TAN, IEC, etc., max 2&nbsp;MB each).
-            Load spreadsheet from mail once first so Drive downloads work.
+            Status only — Softlink Finish (Cash On Delivery + Notes) runs in the background pipeline with the same rules as before.
         </p>
-        <div class="actions">
-            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
-                <button type="submit" class="secondary">1. Sign in to Softlink</button>
-            </form>
-            <form method="post" asp-page-handler="FinishSoftlink" asp-route-id="@run.Id" class="send-form" data-attach-notes>
-                <button type="submit">2. Finish @finishPending new organisation@(finishPending == 1 ? "" : "s")</button>
-            </form>
-            @if (wakazo is not null && ((wakazo.CodMarkStatus != "Done" && wakazo.CodMarkStatus != "Skipped") || wakazo.NotesUploadStatus != "Attached"))
-            {
-                <form method="post" asp-page-handler="FinishSoftlink" asp-route-id="@run.Id" class="send-form" data-attach-notes>
-                    <input type="hidden" name="orgName" value="Wakazo Corporation" />
-                    <button type="submit" class="secondary">Test: Finish Wakazo Corporation only</button>
-                </form>
-            }
-        </div>
         <ul class="ledger-items">
             @foreach (var row in finishRows)
             {
@@ -226,22 +212,11 @@
 @if (noteRows.Count > 0)
 {
     <section class="panel step" id="notes">
-        <p class="eyebrow">Organisation notes</p>
-        <h2>Attach form documents in Logi-Sys</h2>
+        <p class="eyebrow">Organisation notes status</p>
+        <h2>Form document attachments</h2>
         <p class="lead">
-            For organisations marked <strong>Created</strong> only (not the “already in Logi-Sys” list).
-            Attach downloads every Drive document linked on the form (KYC, PAN, GST, TAN, IEC, etc.), then in Softlink opens each org → <strong>Notes</strong> → <strong>New</strong> → Attachment Choose File (max 2&nbsp;MB each).
-            1) <strong>Sign in to Softlink</strong> as @(string.IsNullOrWhiteSpace(Model.SoftlinkUser) ? "RiyaRP" : Model.SoftlinkUser) — leave Edge open.
-            2) <strong>Attach documents</strong>. Load spreadsheet from mail once first so Drive works.
+            Status only for <strong>Created</strong> organisations. Notes attach runs inside the Softlink Finish step of the pipeline.
         </p>
-        <div class="actions">
-            <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
-                <button type="submit" class="secondary">1. Sign in to Softlink</button>
-            </form>
-            <form method="post" asp-page-handler="AttachNotes" asp-route-id="@run.Id" class="send-form" data-attach-notes>
-                <button type="submit">2. Attach @notePending document set@(notePending == 1 ? "" : "s")</button>
-            </form>
-        </div>
         <ul class="ledger-items">
             @foreach (var row in noteRows)
             {
@@ -251,17 +226,6 @@
                 </li>
             }
         </ul>
-    </section>
-}
-else if (run.Rows.Any(row => row.Status == RowStatuses.Update && !string.IsNullOrWhiteSpace(row.DocumentsJson) && row.DocumentsJson != "[]"))
-{
-    <section class="panel step" id="notes">
-        <p class="eyebrow">Organisation notes</p>
-        <h2>No Created organisations to attach</h2>
-        <p class="lead">
-            Mark the Logi-Sys import result so new organisations are <strong>Created</strong>, then Attach will run for those only.
-            Rows already in Logi-Sys are skipped on purpose — attaching every Update row tried thousands of Drive files and never finished.
-        </p>
     </section>
 }
 
@@ -348,24 +312,15 @@ else if (run.Rows.Any(row => row.Status == RowStatuses.Update && !string.IsNullO
         <h2>Ledger link: @ledgerCount @(ledgerCount == 1 ? "organisation" : "organisations")</h2>
         <p class="lead">
             Column I says these organisations are to be invoiced, so their ledger has to be linked in Logi-Sys.
-            Softlink G/L runs only for <strong>India</strong> organisations marked <strong>Created</strong> after Softlink upload
-            (recent uploads) — not for rows already in Logi-Sys.
-            Shipper/consignee → <strong>Customer G/L → TPY Receivable</strong>;
-            agent/sub-agent/carrier → <strong>Vendor G/L → TPY Payable</strong>.
-            Overseas Softlink G/L is not automated yet.
+            Softlink India G/L runs in the background pipeline for <strong>Created</strong> organisations
+            (Shipper/consignee → TPY Receivable; agent/sub-agent/carrier → TPY Payable).
+            @if (indiaLedgerPending > 0)
+            {
+                <text> @indiaLedgerPending India @(indiaLedgerPending == 1 ? "organisation is" : "organisations are") still pending Softlink G/L.</text>
+            }
         </p>
         <div class="actions">
             <a class="button secondary" asp-page="/Runs/Detail" asp-route-id="@run.Id" asp-page-handler="LedgerFile">Download ledger checklist</a>
-            @if (indiaLedgerPending > 0)
-            {
-                <form method="post" asp-page-handler="SoftlinkSignIn" asp-route-id="@run.Id" class="send-form">
-                    <input type="hidden" name="returnTo" value="ledger" />
-                    <button type="submit" class="secondary">1. Sign in to Softlink</button>
-                </form>
-                <form method="post" asp-page-handler="LinkIndiaLedger" asp-route-id="@run.Id" class="send-form" data-attach-notes>
-                    <button type="submit">2. Link India G/L (@indiaLedgerPending)</button>
-                </form>
-            }
         </div>
         @if (indiaLedgerRows.Count > 0)
         {

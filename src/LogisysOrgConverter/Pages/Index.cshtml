@@ -8,6 +8,20 @@
     <p class="eyebrow">Client workbook</p>
     <h1>Create the files Logi-Sys accepts.</h1>
     <p class="lead">Load Organisation Creation Request Form (Responses) into Choose File. Edge opens the Form Responses 1 tab. The verification code is read from the mailbox and entered. Then create the Logi-Sys files.</p>
+    @if (Model.AutomationPollsMailbox)
+    {
+        <p class="lead">
+            Automation loads the Organisation Creation response spreadsheet from the mailbox
+            @(string.IsNullOrWhiteSpace(Model.AutomationMailbox) ? "" : $"({Model.AutomationMailbox}) ")
+            Spreadsheet folder every @Model.AutomationMailPollMinutes minute@(Model.AutomationMailPollMinutes == 1 ? "" : "s")
+            — same as <strong>Load spreadsheet from mail</strong> — then converts and runs Softlink when the sheet changes.
+        </p>
+    }
+    else if (Model.AutomationWatchesFolder)
+    {
+        <p class="lead">Or drop a client <strong>.xlsx</strong> into the inbox folder to convert and run Softlink automatically: <code>@Model.AutomationInboxPath</code></p>
+    }
+    <p class="lead">India / Overseas Excel files and <strong>run-status.log</strong> are saved under: <code>@Model.AutomationOutputFolder</code></p>
 
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {

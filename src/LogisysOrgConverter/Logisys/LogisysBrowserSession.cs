@@ -92,6 +92,34 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         File.WriteAllText(_markerPath, DateTime.UtcNow.ToString("o"));
     }
 
+    /// <summary>
+    /// Opens Softlink Edge (same as the old Sign-in button) if needed, waits for the debug port,
+    /// then waits for Security Code + Log In + company Submit — so automation does not require
+    /// Edge to be left open beforehand.
+    /// </summary>
+    public async Task EnsureReadyAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            throw new LogisysException("Logisys:BaseUrl is not set in appsettings.");
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(_profileDir);
+            Directory.CreateDirectory(_debugFolder);
+            await EnsureEdgeOpenAsync(cancellationToken);
+            var page = await ConnectAndWaitForSignInAsync(cancellationToken);
+            MarkSignedIn();
+            _logger.LogInformation("Softlink session ready at {Url}", page.Url);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<T> RunAsync<T>(Func<IPage, CancellationToken, Task<T>> work, CancellationToken cancellationToken)
     {
         if (!IsConfigured)
@@ -105,79 +133,10 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
             Directory.CreateDirectory(_profileDir);
             Directory.CreateDirectory(_debugFolder);
 
-            if (!await PortOpenAsync(DebugPort, cancellationToken))
-            {
-                throw new LogisysException(
-                    "Softlink Edge is not open. Click “Sign in to Softlink”, finish captcha + Log In + Submit, leave Edge open, then Attach.");
-            }
-
-            _playwright ??= await Playwright.CreateAsync();
-            _browser ??= await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
-
-            IBrowserContext context;
             try
             {
-                context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
-            }
-            catch (PlaywrightException)
-            {
-                _browser = null;
-                _browser = await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
-                context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
-            }
-
-            var page = await PickSoftlinkPageAsync(context);
-            page.SetDefaultTimeout(60_000);
-
-            try
-            {
-                await page.BringToFrontAsync();
-                _logger.LogInformation("Softlink Attach using tab {Url}", page.Url);
-
-                // Softlink sometimes bounces back to Login when Attach connects. Wait in the same
-                // window for you to sign in again — do not navigate away or autofill captcha.
-                if (await IsLoginPageAsync(page))
-                {
-                    // Prefer another already-signed-in tab before waiting on Login.
-                    page = await PickSoftlinkPageAsync(context);
-                    await page.BringToFrontAsync();
-                }
-
-                if (await IsLoginPageAsync(page))
-                {
-                    _logger.LogInformation(
-                        "Softlink is on Login after Attach connected; waiting up to {Minutes} minute(s) for Security Code + Log In in the open Edge window.",
-                        Math.Max(1, _options.LoginWaitMinutes));
-                    var deadline = DateTime.UtcNow.AddMinutes(Math.Max(1, _options.LoginWaitMinutes));
-                    while (DateTime.UtcNow < deadline && await IsLoginPageAsync(page))
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        var better = await PickSoftlinkPageAsync(context);
-                        if (!await IsLoginPageAsync(better))
-                        {
-                            page = better;
-                            await page.BringToFrontAsync();
-                            break;
-                        }
-
-                        await page.WaitForTimeoutAsync(2_000);
-                    }
-                }
-
-                if (await IsLoginPageAsync(page))
-                {
-                    await CaptureAsync(page, "still-on-login");
-                    throw new LogisysException(
-                        "Softlink is still on Login. In the open Edge window type Security Code, click Log In, Submit for Gurugram, leave Edge open — Attach is waiting on that same window.");
-                }
-
-                await TrySubmitCompanyAsync(page);
-                if (await IsLoginPageAsync(page))
-                {
-                    throw new LogisysException(
-                        "Softlink sign-in did not finish. Complete Log In and Submit in the open Edge window, leave it open, then Attach will continue.");
-                }
-
+                await EnsureEdgeOpenAsync(cancellationToken);
+                var page = await ConnectAndWaitForSignInAsync(cancellationToken);
                 MarkSignedIn();
                 // Never close Edge here — ConnectOverCDP does not own the process; leave the window open.
                 return await work(page, cancellationToken);
@@ -192,6 +151,102 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         {
             _gate.Release();
         }
+    }
+
+    private async Task EnsureEdgeOpenAsync(CancellationToken cancellationToken)
+    {
+        if (await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            // Focus / reuse the existing Softlink Edge window (same as Sign-in when already open).
+            OpenSignInWindow();
+            return;
+        }
+
+        _logger.LogInformation("Opening Softlink Edge for Security Code + Log In.");
+        OpenSignInWindow();
+
+        var minutes = Math.Max(1, _options.LoginWaitMinutes);
+        var deadline = DateTime.UtcNow.AddMinutes(minutes);
+        while (DateTime.UtcNow < deadline && !await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(1_000, cancellationToken);
+        }
+
+        if (!await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            throw new LogisysException(
+                $"Softlink Edge did not open within {minutes} minute(s). When Edge opens, enter Security Code, click Log In, Submit for Gurugram, and leave that window open.");
+        }
+    }
+
+    private async Task<IPage> ConnectAndWaitForSignInAsync(CancellationToken cancellationToken)
+    {
+        _playwright ??= await Playwright.CreateAsync();
+        _browser ??= await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
+
+        IBrowserContext context;
+        try
+        {
+            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
+        }
+        catch (PlaywrightException)
+        {
+            _browser = null;
+            _browser = await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
+            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
+        }
+
+        var page = await PickSoftlinkPageAsync(context);
+        page.SetDefaultTimeout(60_000);
+        await page.BringToFrontAsync();
+        _logger.LogInformation("Softlink using tab {Url}", page.Url);
+
+        // Softlink sometimes bounces back to Login when Attach connects. Wait in the same
+        // window for you to sign in again — do not navigate away or autofill captcha.
+        if (await IsLoginPageAsync(page))
+        {
+            page = await PickSoftlinkPageAsync(context);
+            await page.BringToFrontAsync();
+        }
+
+        if (await IsLoginPageAsync(page))
+        {
+            var minutes = Math.Max(1, _options.LoginWaitMinutes);
+            _logger.LogInformation(
+                "Softlink is on Login; waiting up to {Minutes} minute(s) for Security Code + Log In in the Edge window the service opened.",
+                minutes);
+            var deadline = DateTime.UtcNow.AddMinutes(minutes);
+            while (DateTime.UtcNow < deadline && await IsLoginPageAsync(page))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var better = await PickSoftlinkPageAsync(context);
+                if (!await IsLoginPageAsync(better))
+                {
+                    page = better;
+                    await page.BringToFrontAsync();
+                    break;
+                }
+
+                await page.WaitForTimeoutAsync(2_000);
+            }
+        }
+
+        if (await IsLoginPageAsync(page))
+        {
+            await CaptureAsync(page, "still-on-login");
+            throw new LogisysException(
+                "Softlink is still on Login. In the Edge window the service opened, type Security Code, click Log In, Submit for Gurugram, and leave Edge open.");
+        }
+
+        await TrySubmitCompanyAsync(page);
+        if (await IsLoginPageAsync(page))
+        {
+            throw new LogisysException(
+                "Softlink sign-in did not finish. Complete Log In and Submit in the Edge window the service opened, leave it open, and the pipeline will continue.");
+        }
+
+        return page;
     }
 
     public static bool IsClosedError(Exception ex) =>
