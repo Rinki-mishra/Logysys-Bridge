@@ -68,6 +68,8 @@ public static class MappingSeed
         // Softlink Account Info uses display headers (like Credit Limit); checkbox values are Y/N.
         maps.Add(Map(MappingCatalog.IndiaTemplate, "Cash On Delivery", "Constant", null, 250, "Y"));
         maps.Add(Map(MappingCatalog.OverseasTemplate, "Cash On Delivery", "Constant", null, 250, "Y"));
+        maps.Add(Map(MappingCatalog.IndiaTemplate, "IsCashOnDelivery", "Constant", null, 251, "yes"));
+        maps.Add(Map(MappingCatalog.OverseasTemplate, "IsCashOnDelivery", "Constant", null, 251, "yes"));
         return maps;
     }
 

@@ -7,9 +7,7 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
-        var retired = MappingSeed.RetiredTargetHeaders
-            .Concat(["IsCashOnDelivery"])
-            .ToList();
+        var retired = MappingSeed.RetiredTargetHeaders.ToList();
         db.FieldMaps.RemoveRange(await db.FieldMaps.Where(map => retired.Contains(map.TargetHeader)).ToListAsync(cancellationToken));
 
         if (!await db.FieldMaps.AnyAsync(cancellationToken))
@@ -18,7 +16,7 @@ public static class DbInitializer
         }
         else
         {
-            // Field maps added to the seed later (for example IsCashOnDelivery) are filled in.
+            // Field maps added to the seed later are filled in.
             var existing = await db.FieldMaps.ToListAsync(cancellationToken);
             var saved = existing
                 .Select(map => map.TemplateCode + "\n" + map.TargetHeader)
