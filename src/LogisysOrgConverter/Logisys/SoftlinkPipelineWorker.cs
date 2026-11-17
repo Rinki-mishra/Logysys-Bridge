@@ -1,3 +1,6 @@
+using LogisysOrgConverter.Data;
+using Microsoft.EntityFrameworkCore;
+
 namespace LogisysOrgConverter.Logisys;
 
 /// <summary>
@@ -22,6 +25,8 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await EnqueueRecentPendingAsync(stoppingToken);
+
         await foreach (var runId in _queue.Reader.ReadAllAsync(stoppingToken))
         {
             _queue.SetRunning(runId);
@@ -37,9 +42,9 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
                 {
                     _queue.SetRunning(
                         runId,
-                        "Opening Softlink Edge — enter Security Code, Log In, Submit for Gurugram when the login page appears.");
+                        "Opening Softlink Edge — User Id/Password are filled from config; enter Security Code, Log In, Submit for Gurugram.");
                     _logger.LogInformation(
-                        "Opening Softlink Edge for run {RunId}; waiting for Security Code + Log In if needed.",
+                        "Opening Softlink Edge for run {RunId}; autofilling User Id/Password, waiting for Security Code + Log In if needed.",
                         runId);
                     await softlink.EnsureReadyAsync(stoppingToken);
                     _queue.SetRunning(runId, "Softlink signed in — running Upload → Created → Finish → India G/L.");
@@ -70,6 +75,51 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
                     _logger.LogWarning(logEx, "Could not write failure status log for run {RunId}.", runId);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// If convert finished but folder-write hung before Enqueue, pick up recent India/Overseas runs.
+    /// </summary>
+    private async Task EnqueueRecentPendingAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            // Only the newest convert with Ready India/Overseas rows — not a backlog of old runs.
+            var since = DateTime.UtcNow.AddHours(-6);
+            var pendingId = await db.Runs.AsNoTracking()
+                .Where(run => run.CreatedAtUtc >= since
+                    && (run.IndiaCount > 0 || run.OverseasCount > 0))
+                .OrderByDescending(run => run.CreatedAtUtc)
+                .Select(run => run.Id)
+                .FirstOrDefaultAsync(stoppingToken);
+
+            if (pendingId == Guid.Empty)
+            {
+                return;
+            }
+
+            var needsUpload = await db.RunRows.AsNoTracking().AnyAsync(
+                row => row.RunId == pendingId
+                    && row.Status == RowStatuses.Ready
+                    && row.ImportStatus == null
+                    && (row.Template == RowTemplates.India || row.Template == RowTemplates.Overseas),
+                stoppingToken);
+            if (!needsUpload)
+            {
+                return;
+            }
+
+            _logger.LogInformation(
+                "Enqueueing latest pending Softlink run {RunId} (convert finished; upload not done).",
+                pendingId);
+            _queue.Enqueue(pendingId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not enqueue recent pending Softlink runs.");
         }
     }
 

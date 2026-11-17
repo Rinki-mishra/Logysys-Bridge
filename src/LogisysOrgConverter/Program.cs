@@ -8,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-builder.Services.AddRequestTimeouts();
-builder.Services.AddRazorPages();
+// Headless worker host: mail poll + Softlink pipeline. No Razor UI.
+builder.Services.AddDataProtection();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("Logisys"),
@@ -38,14 +38,6 @@ builder.Services.AddHttpClient(GoogleSheets.HttpClientName, client => client.Tim
 builder.Services.AddSingleton<FormMailbox>();
 builder.Services.AddSingleton<GoogleBrowserSession>();
 builder.Services.AddSingleton<GoogleSheets>();
-builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSession(options =>
-{
-    options.IdleTimeout = TimeSpan.FromMinutes(20);
-    options.Cookie.HttpOnly = true;
-    options.Cookie.IsEssential = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-});
 builder.Services.AddSingleton<MailDelivery>();
 builder.Services.AddScoped<NotificationStore>();
 builder.Services.Configure<LogisysOrgConverter.GoogleDrive.GoogleOptions>(
@@ -73,25 +65,16 @@ builder.Services.AddHostedService<SoftlinkPipelineWorker>();
 builder.Services.Configure<AutomationOptions>(builder.Configuration.GetSection(AutomationOptions.Section));
 builder.Services.AddHostedService<MailSpreadsheetPoller>();
 builder.Services.AddHostedService<ClientWorkbookWatcher>();
-builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
-{
-    options.MultipartBodyLengthLimit = 20 * 1024 * 1024;
-});
 
 var app = builder.Build();
 
 await PrepareDatabaseAsync(app);
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error");
-}
+app.MapGet("/", () => Results.Text(
+    "Logi-Sys organisation automation worker (no UI).\n" +
+    "Mailbox poll and Softlink pipeline run in the background.\n" +
+    "Output: C:\\Logisys-bridge inbox\n"));
 
-app.UseStaticFiles();
-app.UseRouting();
-app.UseRequestTimeouts();
-app.UseSession();
-app.MapRazorPages();
 app.Run();
 
 static async Task PrepareDatabaseAsync(WebApplication app)

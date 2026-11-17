@@ -18,6 +18,28 @@ public sealed class ClientSheetException : Exception
 
 public static class ClientSheetReader
 {
+    /// <summary>Column A timestamp from the Organisation Creation response sheet.</summary>
+    public static bool TryRequestedAt(ClientRow row, out DateTime requestedAt)
+    {
+        requestedAt = default;
+        if (!row.Cells.TryGetValue("A", out var text) || string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return DateTime.TryParseExact(
+                   text.Trim(),
+                   "yyyy-MM-dd HH:mm:ss",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out requestedAt)
+               || DateTime.TryParse(
+                   text.Trim(),
+                   CultureInfo.GetCultureInfo("en-IN"),
+                   DateTimeStyles.None,
+                   out requestedAt);
+    }
+
     public static IReadOnlyList<ClientRow> Read(Stream stream)
     {
         if (stream.CanSeek)

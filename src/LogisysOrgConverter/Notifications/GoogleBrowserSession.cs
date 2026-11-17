@@ -71,7 +71,8 @@ public sealed partial class GoogleBrowserSession
             Directory.CreateDirectory(_profileDir);
             using var playwright = await Playwright.CreateAsync();
             var channel = string.IsNullOrWhiteSpace(_visitor.BrowserChannel) ? "msedge" : _visitor.BrowserChannel.Trim();
-            await using var context = await playwright.Chromium.LaunchPersistentContextAsync(_profileDir, new BrowserTypeLaunchPersistentContextOptions
+            // Profile can stay locked by a leftover headed GoogleSession Edge — do not wait forever.
+            var launchTask = playwright.Chromium.LaunchPersistentContextAsync(_profileDir, new BrowserTypeLaunchPersistentContextOptions
             {
                 Channel = channel,
                 Headless = true,
@@ -79,8 +80,16 @@ public sealed partial class GoogleBrowserSession
                 Args = ["--disable-blink-features=AutomationControlled"],
                 IgnoreDefaultArgs = ["--enable-automation"]
             });
+            var finished = await Task.WhenAny(launchTask, Task.Delay(TimeSpan.FromSeconds(20), cancellationToken));
+            if (finished != launchTask)
+            {
+                throw new FormSheetException(
+                    "GoogleSession Edge did not open in time (profile may be locked). Close leftover Google Edge windows and try again.");
+            }
+
+            await using var context = await launchTask;
             var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
-            page.SetDefaultTimeout(60_000);
+            page.SetDefaultTimeout(30_000);
 
             foreach (var fileId in unique)
             {
@@ -89,7 +98,7 @@ public sealed partial class GoogleBrowserSession
                 {
                     var response = await page.Context.APIRequest.GetAsync(
                         "https://drive.google.com/uc?export=download&id=" + Uri.EscapeDataString(fileId),
-                        new APIRequestContextOptions { MaxRedirects = 10, Timeout = 90_000 });
+                        new APIRequestContextOptions { MaxRedirects = 10, Timeout = 30_000 });
                     var body = await response.BodyAsync();
                     response.Headers.TryGetValue("content-type", out var contentType);
                     contentType ??= "application/octet-stream";
@@ -340,11 +349,8 @@ public sealed partial class GoogleBrowserSession
 
     private async Task RequestCodeAndSignInAsync(IPage page, CancellationToken cancellationToken)
     {
-        // Only auto-fill Google:LoginHint. Do NOT use the Outlook mailbox address here —
-        // mailbox (e.g. riya@awgmen.com) receives codes but is often not a Google account.
-        // When LoginHint is empty, reuse GoogleSession cookies / let you pick an account.
-        var loginEmail = (_google.LoginHint ?? string.Empty).Trim();
-        var codeMailbox = string.IsNullOrWhiteSpace(_mailbox.Address) ? loginEmail : _mailbox.Address.Trim();
+        // Same as feature/softlink-automation: LoginHint if set, otherwise mailbox address.
+        var hint = string.IsNullOrWhiteSpace(_google.LoginHint) ? _mailbox.Address : _google.LoginHint.Trim();
         var minutes = _visitor.CodeWaitMinutes < 1 ? 3 : _visitor.CodeWaitMinutes;
         var deadline = DateTimeOffset.UtcNow.AddMinutes(minutes);
         var giveUpControls = DateTimeOffset.UtcNow.AddSeconds(25);
@@ -360,7 +366,7 @@ public sealed partial class GoogleBrowserSession
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(loginEmail) && !emailSubmitted && await SubmitEmailAsync(page, loginEmail))
+            if (!emailSubmitted && await SubmitEmailAsync(page, hint))
             {
                 emailSubmitted = true;
                 requestedAt = DateTimeOffset.UtcNow;
@@ -371,7 +377,7 @@ public sealed partial class GoogleBrowserSession
                 requestedAt = DateTimeOffset.UtcNow;
             }
 
-            if (requestedAt is DateTimeOffset sent && usedCode is null && !string.IsNullOrWhiteSpace(codeMailbox))
+            if (requestedAt is DateTimeOffset sent && usedCode is null)
             {
                 var code = await _mailbox.RecentSignInCodeAsync(sent, cancellationToken);
                 if (!string.IsNullOrEmpty(code) && await EnterCodeAsync(page, code))
@@ -381,20 +387,14 @@ public sealed partial class GoogleBrowserSession
             }
             else if (requestedAt is null && DateTimeOffset.UtcNow > giveUpControls)
             {
-                var who = string.IsNullOrWhiteSpace(loginEmail)
-                    ? "the Google account that already has access (GoogleSession)"
-                    : loginEmail;
-                throw new FormSheetException(
-                    "Edge is open at " + page.Url + ". The verification box was not found. Sign in as " + who + " in that window, then load the spreadsheet again.");
+                throw new FormSheetException("Edge is open at " + page.Url + ". The verification box was not found. Use " + hint + " in that window, then load the spreadsheet again.");
             }
 
             await page.WaitForTimeoutAsync(2000);
         }
 
-        var target = string.IsNullOrWhiteSpace(loginEmail) ? codeMailbox : loginEmail;
         throw new FormSheetException(
-            "Google did not accept the code" + (string.IsNullOrWhiteSpace(target) ? "." : " sent for " + target + ".")
-            + " Open Load spreadsheet from mail once so GoogleSession is signed in, then try again.");
+            "Google did not accept the code sent to " + hint + ". Open the sheet again so a new code can be requested.");
     }
 
     private static async Task<bool> SubmitEmailAsync(IPage page, string email)
@@ -532,8 +532,7 @@ public sealed partial class GoogleBrowserSession
         if (text.Contains("You need permission", StringComparison.OrdinalIgnoreCase)
             || text.Contains("Request access", StringComparison.OrdinalIgnoreCase))
         {
-            throw new FormSheetException(
-                "Google opened the file, but this sign-in does not have access. In Edge choose the Google account that can open the sheet (or open Load spreadsheet from mail once to refresh GoogleSession).");
+            throw new FormSheetException("Google opened the file, but this sign-in does not have access. Choose riya@awgmen.com in the Edge window.");
         }
     }
 

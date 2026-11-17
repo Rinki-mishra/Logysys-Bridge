@@ -131,7 +131,13 @@ public sealed class MailSpreadsheetPoller : BackgroundService
             var store = scope.ServiceProvider.GetRequiredService<ConversionStore>();
             var outputs = scope.ServiceProvider.GetRequiredService<RunOutputWriter>();
             await using var stream = new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
-            runId = await store.ConvertAsync(notice.FileName, stream, stoppingToken);
+            // Sheet holds full history (~10k rows). Only convert recent requests so Softlink is not blocked.
+            var since = previous?.ProcessedAtUtc.ToLocalTime().AddHours(-12)
+                ?? DateTime.Now.AddDays(-2);
+            _logger.LogInformation(
+                "Converting response rows on or after {Since} (local), not the full sheet history.",
+                since);
+            runId = await store.ConvertAsync(notice.FileName, stream, stoppingToken, onlyRequestedOnOrAfter: since);
             try
             {
                 await outputs.WriteAfterConvertAsync(runId, stoppingToken);
@@ -145,6 +151,21 @@ public sealed class MailSpreadsheetPoller : BackgroundService
             if (run is not null && (run.IndiaCount > 0 || run.OverseasCount > 0))
             {
                 _pipelineQueue.Enqueue(runId);
+            }
+            else
+            {
+                // No Softlink steps — write final run-status now (otherwise it would never appear).
+                try
+                {
+                    await outputs.WriteAfterPipelineAsync(
+                        runId,
+                        "Softlink pipeline skipped — no India/Overseas organisations to upload.",
+                        stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not write final run-status for {RunId}.", runId);
+                }
             }
         }
 

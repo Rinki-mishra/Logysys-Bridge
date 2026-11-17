@@ -213,10 +213,12 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         if (await IsLoginPageAsync(page))
         {
             var minutes = Math.Max(1, _options.LoginWaitMinutes);
+            await TryFillLoginCredentialsAsync(page);
             _logger.LogInformation(
-                "Softlink is on Login; waiting up to {Minutes} minute(s) for Security Code + Log In in the Edge window the service opened.",
+                "Softlink is on Login; User Id/Password filled from config when set. Waiting up to {Minutes} minute(s) for Security Code + Log In.",
                 minutes);
             var deadline = DateTime.UtcNow.AddMinutes(minutes);
+            var lastFill = DateTime.UtcNow;
             while (DateTime.UtcNow < deadline && await IsLoginPageAsync(page))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -228,6 +230,13 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
                     break;
                 }
 
+                // Softlink sometimes clears the form; refill credentials every few seconds.
+                if ((DateTime.UtcNow - lastFill).TotalSeconds >= 4)
+                {
+                    await TryFillLoginCredentialsAsync(page);
+                    lastFill = DateTime.UtcNow;
+                }
+
                 await page.WaitForTimeoutAsync(2_000);
             }
         }
@@ -236,7 +245,7 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         {
             await CaptureAsync(page, "still-on-login");
             throw new LogisysException(
-                "Softlink is still on Login. In the Edge window the service opened, type Security Code, click Log In, Submit for Gurugram, and leave Edge open.");
+                "Softlink is still on Login. User Id and Password are filled from config when set — type the Security Code, click Log In, Submit for Gurugram, and leave Edge open.");
         }
 
         await TrySubmitCompanyAsync(page);
@@ -326,6 +335,73 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         catch (PlaywrightException)
         {
             return IsLoginUrl(page.Url);
+        }
+    }
+
+    /// <summary>
+    /// Fills Softlink User Id + Password from Logisys options. Does not touch Security Code (captcha).
+    /// </summary>
+    private async Task TryFillLoginCredentialsAsync(IPage page)
+    {
+        var userName = UserName;
+        var password = (_options.Password ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(userName) && string.IsNullOrWhiteSpace(password))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!await IsLoginPageAsync(page))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(userName))
+            {
+                var user = page.GetByPlaceholder("User Id");
+                if (await user.CountAsync() > 0 && await user.First.IsVisibleAsync())
+                {
+                    var current = await user.First.InputValueAsync();
+                    if (!string.Equals(current, userName, StringComparison.Ordinal))
+                    {
+                        await user.First.FillAsync(userName);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(password))
+            {
+                var pass = page.GetByPlaceholder("Password", new PageGetByPlaceholderOptions { Exact = true });
+                if (await pass.CountAsync() == 0)
+                {
+                    pass = page.Locator("input[type='password']:visible");
+                }
+
+                if (await pass.CountAsync() > 0 && await pass.First.IsVisibleAsync())
+                {
+                    var current = await pass.First.InputValueAsync();
+                    if (!string.Equals(current, password, StringComparison.Ordinal))
+                    {
+                        await pass.First.FillAsync(password);
+                    }
+                }
+            }
+
+            // Leave focus on Security Code so the operator only types the captcha.
+            var security = page.GetByPlaceholder("Security Code");
+            if (await security.CountAsync() > 0 && await security.First.IsVisibleAsync())
+            {
+                await security.First.FocusAsync();
+            }
+
+            _logger.LogInformation(
+                "Filled Softlink login fields for {UserName}; enter Security Code and click Log In.",
+                string.IsNullOrWhiteSpace(userName) ? "(password only)" : userName);
+        }
+        catch (PlaywrightException ex)
+        {
+            _logger.LogDebug(ex, "Could not autofill Softlink User Id / Password.");
         }
     }
 

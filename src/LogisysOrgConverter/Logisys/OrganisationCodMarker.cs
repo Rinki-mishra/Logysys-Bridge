@@ -7,7 +7,7 @@ namespace LogisysOrgConverter.Logisys;
 public sealed record CodMarkSummary(int Organisations, int Marked, int Skipped, int Failed, string Message);
 
 // Softlink Org Master import does not apply the Excel "Cash On Delivery" column to Account Info.
-// After create, tick Account Info → Customer → Cash On Delivery in Softlink for new orgs only.
+// After create: Account Info → Edit → Customer → Cash On Delivery → Save & Close, then next org.
 public sealed class OrganisationCodMarker
 {
     private readonly AppDbContext _db;
@@ -167,42 +167,18 @@ public sealed class OrganisationCodMarker
                 $"Organisation Master for \"{organisationName}\" did not open. Search by Name, click Modify (pencil), then try again.");
         await page.BringToFrontAsync();
 
-        // Softlink Organization Master is flaky: tabs/buttons hydrate after the window opens, and Edit
-        // often snaps back to General. Wait for controls, Edit first, then keep forcing Account Info.
         if (!await WaitForMasterControlsAsync(page))
         {
             throw new LogisysException(
                 "Organization Master did not finish loading (Account Info / Edit controls missing). Leave Edge open and Finish again.");
         }
 
-        var alreadyEditing = await IsAlreadyEditingAsync(page);
-        if (!alreadyEditing)
-        {
-            if (!await SoftlinkClickEditAsync(page) && !await ClickToolbarAsync(page, "Edit"))
-            {
-                throw new LogisysException("Could not click Edit on Organization Master.");
-            }
-
-            await page.WaitForTimeoutAsync(1_200);
-            await WaitForMasterControlsAsync(page);
-        }
-
-        // Softlink path: Edit → Account Info (#tsMainItem6) → Customer → COD → Save & Close.
-        // Do NOT click "General" after Account Info — that jumps back to Address and hides COD.
+        // Required Softlink order (Edit-first leaves the form stuck on Address/General):
+        // Account Info → Edit → mark Cash On Delivery → Save & Close → next organisation.
         if (!await EnsureAccountInfoAsync(page))
         {
-            // Softlink often stays on Address after Edit; re-click Edit once, then force Account Info again.
-            if (!await IsAlreadyEditingAsync(page))
-            {
-                await SoftlinkClickEditAsync(page);
-                await page.WaitForTimeoutAsync(1_000);
-            }
-
-            if (!await EnsureAccountInfoAsync(page))
-            {
-                throw new LogisysException(
-                    "Account Info tab did not open (still on Address/General). Softlink tab strip was slow — leave Organization Master open and Finish again.");
-            }
+            throw new LogisysException(
+                "Account Info tab did not open (still on Address/General). Softlink tab strip was slow — leave Organization Master open and Finish again.");
         }
 
         if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
@@ -211,6 +187,32 @@ public sealed class OrganisationCodMarker
         }
 
         await page.WaitForTimeoutAsync(800);
+
+        var alreadyEditing = await IsAlreadyEditingAsync(page);
+        if (!alreadyEditing)
+        {
+            if (!await SoftlinkClickEditAsync(page) && !await ClickToolbarAsync(page, "Edit"))
+            {
+                throw new LogisysException("Could not click Edit on Organization Master (Account Info).");
+            }
+
+            await page.WaitForTimeoutAsync(1_200);
+            await WaitForMasterControlsAsync(page);
+
+            // Edit often snaps Softlink back to General — force Account Info → Customer again.
+            if (!await EnsureAccountInfoAsync(page))
+            {
+                throw new LogisysException(
+                    "Account Info tab did not stay open after Edit. Leave Organization Master open and Finish again.");
+            }
+
+            if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
+            {
+                throw new LogisysException("Could not open Account Info → Customer after Edit.");
+            }
+
+            await page.WaitForTimeoutAsync(600);
+        }
 
         // Rule: any Credit Limit (> 0) or Unlimited → never tick Cash On Delivery.
         if (await HasCreditOrUnlimitedAsync(page))
@@ -230,8 +232,7 @@ public sealed class OrganisationCodMarker
             return CodOutcome.AlreadySet;
         }
 
-        // Edit disabled / already Update → tick COD immediately (do not require another Edit click).
-        if (!alreadyEditing && !await EnsureEditableAsync(page, box))
+        if (!await IsAlreadyEditingAsync(page) && !await EnsureEditableAsync(page, box))
         {
             throw new LogisysException(
                 "Cash On Delivery is still locked. Softlink must be in Edit/Update mode, then Finish again.");

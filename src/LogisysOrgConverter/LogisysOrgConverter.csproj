@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ScopedCssEnabled>false</ScopedCssEnabled>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +18,16 @@
 
   <ItemGroup>
     <Content Include="Templates\*.xlsx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Headless worker: keep Razor sources in the repo but do not compile or publish them. -->
+  <ItemGroup>
+    <Content Remove="Pages\**" />
+    <None Include="Pages\**" />
+    <Compile Remove="Pages\**\*.cs" />
+    <_ContentIncludedByDefault Remove="Pages\**" />
+    <Content Remove="wwwroot\**" />
+    <None Include="wwwroot\**" Condition="Exists('wwwroot')" />
   </ItemGroup>
 
 </Project>

@@ -41,18 +41,73 @@ public static class SoftlinkOrgNavigation
             throw new LogisysException("Logi-Sys signed out. Sign in again in the Edge window.");
         }
 
-        await page.GotoAsync(baseUrl.TrimEnd('/') + "/NewHomePage.aspx", new PageGotoOptions
+        var root = baseUrl.TrimEnd('/');
+
+        // Prefer the Softlink Organizations list URL — top-bar clicks on NewHomePage are flaky
+        // (home dashboard can stay open while upload never starts).
+        foreach (var path in new[] { "/OrganizationList.aspx", "/OrgMaster/OrganizationList.aspx" })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await page.GotoAsync(root + path, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 60_000
+                });
+                await page.WaitForTimeoutAsync(1_500);
+                if (await HasOrganizationsListAsync(page))
+                {
+                    return;
+                }
+            }
+            catch (PlaywrightException)
+            {
+            }
+        }
+
+        await page.GotoAsync(root + "/NewHomePage.aspx", new PageGotoOptions
         {
             WaitUntil = WaitUntilState.DOMContentLoaded,
             Timeout = 60_000
         });
-        await page.WaitForTimeoutAsync(1_000);
+        await page.WaitForTimeoutAsync(1_500);
 
-        if (!await OpenOrganizationsScreenAsync(page))
+        if (!await OpenOrganizationsScreenAsync(page) || !await HasOrganizationsListAsync(page))
         {
             throw new LogisysException(
                 "Could not open Softlink Organizations. Click Organization (top bar) or Directories → Organizations, then try again.");
         }
+    }
+
+    private static async Task<bool> HasOrganizationsListAsync(IPage page)
+    {
+        if (await HasNameSearchAsync(page))
+        {
+            return true;
+        }
+
+        try
+        {
+            if (page.Url.Contains("OrganizationList", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            foreach (var frame in page.Frames)
+            {
+                var url = frame.Url ?? string.Empty;
+                if (url.Contains("OrganizationList", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (PlaywrightException)
+        {
+        }
+
+        return false;
     }
 
     // 1) Top "Organization" shortcut, or Directories → Organizations.

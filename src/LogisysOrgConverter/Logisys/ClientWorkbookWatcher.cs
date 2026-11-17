@@ -121,6 +121,20 @@ public sealed class ClientWorkbookWatcher : BackgroundService
                 {
                     _pipelineQueue.Enqueue(runId);
                 }
+                else
+                {
+                    try
+                    {
+                        await outputs.WriteAfterPipelineAsync(
+                            runId,
+                            "Softlink pipeline skipped — no India/Overseas organisations to upload.",
+                            stoppingToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not write final run-status for {RunId}.", runId);
+                    }
+                }
             }
 
             MoveAside(path, processedFolder, runId);

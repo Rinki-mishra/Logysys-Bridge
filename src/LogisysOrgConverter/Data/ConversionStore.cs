@@ -39,9 +39,21 @@ public sealed class ConversionStore
         _certificates = certificates;
     }
 
-    public async Task<Guid> ConvertAsync(string fileName, Stream stream, CancellationToken cancellationToken = default)
+    public async Task<Guid> ConvertAsync(
+        string fileName,
+        Stream stream,
+        CancellationToken cancellationToken = default,
+        DateTime? onlyRequestedOnOrAfter = null)
     {
-        var rows = ClientSheetReader.Read(stream);
+        var rows = ClientSheetReader.Read(stream).ToList();
+        // Full response history is 10k+ rows; automation only needs recent requests or Softlink never starts.
+        if (onlyRequestedOnOrAfter is DateTime cutoff)
+        {
+            rows = rows
+                .Where(row => ClientSheetReader.TryRequestedAt(row, out var at) && at >= cutoff)
+                .ToList();
+        }
+
         var documentsByRow = rows.ToDictionary(
             row => row.RowNumber,
             row => FormDocuments.Write(FormDocuments.Collect(row.Cells)));

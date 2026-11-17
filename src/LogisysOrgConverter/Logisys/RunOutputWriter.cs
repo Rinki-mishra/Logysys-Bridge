@@ -32,8 +32,8 @@ public sealed class RunOutputWriter
 
     public async Task<string> WriteAfterConvertAsync(Guid runId, CancellationToken cancellationToken)
     {
+        // Do not Include Rows — runs can have 10k+ rows and that reload blocked Softlink for minutes/GB.
         var run = await _db.Runs
-            .Include(item => item.Rows)
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.Id == runId, cancellationToken)
             ?? throw new InvalidOperationException($"Run {runId} was not found.");
@@ -66,16 +66,17 @@ public sealed class RunOutputWriter
                 cancellationToken);
         }
 
-        var logPath = Path.Combine(folder, "run-status.log");
-        await File.WriteAllTextAsync(logPath, BuildLog(run, stage: "After convert"), cancellationToken);
+        // run-status.log is written only after Softlink pipeline finishes (or when Softlink is skipped),
+        // so COD / Notes / G/L statuses are final — not the empty "after convert" snapshot.
         await File.WriteAllTextAsync(
             Path.Combine(folder, "README.txt"),
             $"Run folder for {run.SourceFileName}{Environment.NewLine}" +
             $"Run Id: {run.Id}{Environment.NewLine}" +
-            $"India / Overseas Excel files and run-status.log are updated when Softlink pipeline finishes.{Environment.NewLine}",
+            $"India / Overseas Excel files are written after convert.{Environment.NewLine}" +
+            $"run-status.log appears when Softlink upload / Finish / G/L is done (or skipped).{Environment.NewLine}",
             cancellationToken);
 
-        _logger.LogInformation("Wrote convert outputs for run {RunId} to {Folder}", runId, folder);
+        _logger.LogInformation("Wrote convert Excel outputs for run {RunId} to {Folder}", runId, folder);
         return folder;
     }
 
