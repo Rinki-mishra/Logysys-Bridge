@@ -1,0 +1,31 @@
+# Line endings
+# -----------------------------------------------------------------------------
+# Store every text file as LF inside the repository, and check it out as CRLF in
+# the working tree. Pinning eol explicitly (rather than relying on core.autocrlf
+# or core.eol=native) means Git on Windows and Git running on Linux against this
+# same folder agree on the working copy, so `git status` stays quiet either way.
+* text=auto eol=crlf
+
+# Binary assets - never converted, never diffed as text.
+# -----------------------------------------------------------------------------
+*.xlsx binary
+*.xls  binary
+*.xlsm binary
+*.docx binary
+*.pdf  binary
+*.ico  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.dll  binary
+*.exe  binary
+*.pfx  binary
+*.snk  binary
+
+# Better diff hunk headers
+# -----------------------------------------------------------------------------
+*.cs     diff=csharp
+*.csproj diff=html
+*.cshtml diff=html
