@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using LogisysOrgConverter.Conversion;
 using LogisysOrgConverter.Data;
@@ -11,7 +12,7 @@ namespace LogisysOrgConverter.Logisys;
 /// Loads the organisation response spreadsheet from the mailbox Spreadsheet folder
 /// (same FindSharedSheetAsync + GoogleSheets.DownloadAsync path as “Load spreadsheet from mail”),
 /// converts with existing ConvertAsync, then enqueues SoftlinkPipeline.
-/// Skips when the downloaded workbook bytes are unchanged since the last successful convert.
+/// Skips when the parsed response rows are unchanged since the last successful convert.
 /// </summary>
 public sealed class MailSpreadsheetPoller : BackgroundService
 {
@@ -108,7 +109,7 @@ public sealed class MailSpreadsheetPoller : BackgroundService
             FormSourceKinds.Sheet, notice.SourceId, stoppingToken, notice.OpenUrl);
         EnsureWorkbook(bytes);
 
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        var hash = ComputeContentHash(bytes);
         var previous = await ReadStateAsync(stoppingToken);
         if (previous is not null
             && string.Equals(previous.SourceId, notice.SourceId, StringComparison.Ordinal)
@@ -177,6 +178,47 @@ public sealed class MailSpreadsheetPoller : BackgroundService
             "Mailbox spreadsheet converted to run {RunId} ({FileName}).",
             runId,
             notice.FileName);
+    }
+
+    // Google regenerates the .xlsx on every download, so the raw bytes differ each poll
+    // even when no response row changed (zip entry timestamps, docProps metadata). Hashing
+    // them made every poll look like a new sheet and converted + uploaded to Softlink again.
+    // Hash the parsed rows instead - the same view of the sheet the converter consumes.
+    private static string ComputeContentHash(byte[] bytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            var rows = ClientSheetReader.Read(stream);
+
+            using var sha = SHA256.Create();
+            using var sink = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write);
+            using (var writer = new StreamWriter(sink, new UTF8Encoding(false), 4096, leaveOpen: true))
+            {
+                foreach (var row in rows)
+                {
+                    writer.Write(row.RowNumber);
+                    writer.Write('\u001F');
+                    foreach (var cell in row.Cells.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+                    {
+                        writer.Write(cell.Key);
+                        writer.Write('\u001E');
+                        writer.Write(cell.Value);
+                        writer.Write('\u001F');
+                    }
+
+                    writer.Write('\n');
+                }
+            }
+
+            sink.FlushFinalBlock();
+            return Convert.ToHexString(sha.Hash!);
+        }
+        catch (Exception ex) when (ex is ClientSheetException or InvalidOperationException)
+        {
+            // Unreadable workbook: fall back to the byte hash so ConvertAsync reports the real error.
+            return Convert.ToHexString(SHA256.HashData(bytes));
+        }
     }
 
     private static void EnsureWorkbook(byte[] bytes)

@@ -300,7 +300,7 @@ public sealed class OrganisationLedgerLinker
         if (!await SoftlinkClickAccountInfoAsync(page))
         {
             throw new LogisysException(
-                "Could not open Account Info (tsMainItem6). Leave Organization Master open and try again.");
+                "Could not open the Account Info tab. Leave Organization Master open and try again.");
         }
 
         if (!await SoftlinkClickEditAsync(page))
@@ -349,12 +349,20 @@ public sealed class OrganisationLedgerLinker
 
             var clicked = await page.EvaluateAsync<bool>("""
                 () => {
-                  const li = document.getElementById('tsMainItem6')
-                    || [...document.querySelectorAll('li[id^="tsMainItem"]')].find(n =>
-                         ((n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'account info'));
+                  // Softlink's tab onclick calls tsMain_Handler.clickTab(n). If that handler was never
+                  // constructed the click throws and is swallowed, so bail out rather than retry blindly.
+                  if (typeof tsMain_Handler === 'undefined' || !tsMain_Handler) return false;
+                  const norm = (n) => (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  // Label first: tab 6 is Account Info on some tenants only, and taking it on
+                  // faith meant the label lookup below never ran.
+                  const li = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                               .find(n => norm(n) === 'account info')
+                    || document.getElementById('tsMainItem6');
                   if (!li) return false;
                   li.scrollIntoView({ block: 'center', inline: 'nearest' });
                   li.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                  const a = li.tagName === 'A' ? li : li.querySelector('a');
+                  if (a) a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
                   return true;
                 }
                 """);
@@ -380,7 +388,10 @@ public sealed class OrganisationLedgerLinker
             return await page.EvaluateAsync<bool>("""
                 () => {
                   // Softlink marks the active main tab with class linkOn — do not use hidden panel presence.
-                  const li = document.getElementById('tsMainItem6');
+                  const norm = (n) => (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  const li = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                               .find(n => norm(n) === 'account info')
+                    || document.getElementById('tsMainItem6');
                   return !!(li && (li.className || '').toString().includes('linkOn'));
                 }
                 """);

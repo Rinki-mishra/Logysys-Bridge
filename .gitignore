@@ -14,3 +14,8 @@ GoogleSession/
 SoftlinkSession/
 App_Data/
 Runs/
+run.log
+run-and-log.ps1
+tabstrip.json
+logs/
+recordings/

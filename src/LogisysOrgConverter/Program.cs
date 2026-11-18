@@ -8,6 +8,42 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
+// Logs and recordings live beside the run outputs (the same folder run-status.log goes to),
+// so everything about a run is in one place. A rooted path in config overrides this.
+var runOutputFolder = builder.Configuration["Automation:OutputFolder"];
+string ResolveOutputDir(string dir)
+{
+    if (Path.IsPathRooted(dir))
+    {
+        return dir;
+    }
+
+    return string.IsNullOrWhiteSpace(runOutputFolder)
+        ? Path.Combine(builder.Environment.ContentRootPath, dir)
+        : Path.Combine(runOutputFolder, dir);
+}
+
+// One complete log file of everything the service does (sign-in through the last
+// Softlink step), alongside the per-run run-status.log.
+var fileLogOptions = new LogisysOrgConverter.Logging.FileLogOptions();
+builder.Configuration.GetSection(LogisysOrgConverter.Logging.FileLogOptions.Section).Bind(fileLogOptions);
+fileLogOptions.Directory = ResolveOutputDir(fileLogOptions.Directory);
+if (fileLogOptions.Enabled)
+{
+    var fileLogProvider = new LogisysOrgConverter.Logging.FileLoggerProvider(
+        fileLogOptions, builder.Environment.ContentRootPath);
+    builder.Logging.AddProvider(fileLogProvider);
+    Console.WriteLine($"Writing full activity log to {fileLogProvider.CurrentPath}");
+}
+
+// Screen recording of the Softlink session (sign-in through the last step).
+var recordingOptions = new LogisysOrgConverter.Logging.RecordingOptions();
+builder.Configuration.GetSection(LogisysOrgConverter.Logging.RecordingOptions.Section).Bind(recordingOptions);
+recordingOptions.Directory = ResolveOutputDir(recordingOptions.Directory);
+builder.Services.AddSingleton(recordingOptions);
+builder.Services.AddSingleton<LogisysOrgConverter.Logging.LogisysBrowserSessionAccessor>();
+builder.Services.AddSingleton<LogisysOrgConverter.Logging.SoftlinkRecorder>();
+
 // Headless worker host: mail poll + Softlink pipeline. No Razor UI.
 builder.Services.AddDataProtection();
 builder.Services.AddDbContext<AppDbContext>(options =>

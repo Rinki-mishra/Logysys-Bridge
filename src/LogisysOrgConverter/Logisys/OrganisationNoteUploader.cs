@@ -205,12 +205,26 @@ public sealed class OrganisationNoteUploader
                         await master.BringToFrontAsync();
                         await DismissOpenNoteDialogsAsync(master);
                         await OpenNotesTabAsync(master);
+                        // Keep per-file outcomes. A failure on the second note used to throw out of
+                        // this loop, discarding the first note's success and reporting the whole
+                        // organisation as Failed even though a file had actually been attached.
+                        var attachedLabels = new List<string>();
+                        var failedLabels = new List<string>();
                         foreach (var (document, path) in files)
                         {
                             try
                             {
                                 await AddNoteWithAttachmentAsync(master, document.Label, path);
                                 attached++;
+                                attachedLabels.Add(document.Label);
+                            }
+                            catch (LogisysException ex)
+                            {
+                                failedLabels.Add($"{document.Label} ({FirstLine(ex.Message)})");
+                            }
+                            catch (PlaywrightException ex)
+                            {
+                                failedLabels.Add($"{document.Label} ({FirstLine(ex.Message)})");
                             }
                             finally
                             {
@@ -218,9 +232,14 @@ public sealed class OrganisationNoteUploader
                             }
                         }
 
-                        row.NotesUploadStatus = "Attached";
-                        row.NotesUploadMessage =
-                            $"{files.Count} note(s) attached ({string.Join(", ", files.Select(f => f.Doc.Label))}) at {DateTime.UtcNow:u}.";
+                        // Partial stays Failed so the organisation is retried, but the message now
+                        // says what actually landed instead of implying nothing did.
+                        row.NotesUploadStatus = failedLabels.Count == 0 ? "Attached" : "Failed";
+                        row.NotesUploadMessage = failedLabels.Count == 0
+                            ? $"{files.Count} note(s) attached ({string.Join(", ", attachedLabels)}) at {DateTime.UtcNow:u}."
+                            : $"{attachedLabels.Count} of {files.Count} note(s) attached"
+                              + (attachedLabels.Count > 0 ? $" ({string.Join(", ", attachedLabels)})" : string.Empty)
+                              + $"; failed: {string.Join("; ", failedLabels)} at {DateTime.UtcNow:u}.";
                         await TryCloseOrgMasterAsync(master);
                         // Always drop the Master tab so the next organisation cannot reuse it.
                         await SoftlinkOrgNavigation.CloseOrgMasterPagesAsync(page.Context);
@@ -454,6 +473,42 @@ public sealed class OrganisationNoteUploader
         // use a DOM click instead, then wait for the iframe to unload.
         await DismissOpenNoteDialogsAsync(page);
 
+        // After saving a note Softlink posts back and re-renders the Notes grid. Clicking New while
+        // that is in flight produced no dialog at all, which is why the second document of an
+        // organisation always failed. Wait for the previous dialog to be gone first.
+        for (var settle = 0; settle < 20; settle++)
+        {
+            var stillOpen = false;
+            foreach (var frame in page.Frames.ToList())
+            {
+                if (!(frame.Url ?? string.Empty).Contains("UploadAttachment", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var notes = frame.Locator("#txtNotes");
+                    if (await notes.CountAsync() > 0 && await notes.First.IsVisibleAsync())
+                    {
+                        stillOpen = true;
+                    }
+                }
+                catch (PlaywrightException)
+                {
+                }
+            }
+
+            if (!stillOpen)
+            {
+                break;
+            }
+
+            await page.WaitForTimeoutAsync(250);
+        }
+
+        await page.WaitForTimeoutAsync(600);
+
         try
         {
             if (!await ClickNotesNewAsync(page))
@@ -627,8 +682,15 @@ public sealed class OrganisationNoteUploader
             {
                 try
                 {
+                    // A dismissed dialog from the previous note keeps #fuAttachment and #txtNotes
+                    // in the DOM, so presence alone matched that stale frame and every fill failed
+                    // as "element is not visible". Require the dialog to actually be on screen.
                     var file = frame.Locator("#fuAttachment, input[type='file']");
-                    if (await file.CountAsync() > 0)
+                    var notes = frame.Locator("#txtNotes");
+                    // Keep the caller's tolerance for a dialog without a notes box: only
+                    // insist on visibility when #txtNotes is actually there.
+                    if (await file.CountAsync() > 0
+                        && (await notes.CountAsync() == 0 || await notes.First.IsVisibleAsync()))
                     {
                         return frame;
                     }
@@ -641,7 +703,27 @@ public sealed class OrganisationNoteUploader
             await page.WaitForTimeoutAsync(250);
         }
 
-        return FindUploadAttachmentFrame(page);
+        // Only hand back a frame whose dialog is visible; otherwise the caller reports
+        // "dialog did not open", which is clearer than a 10s fill timeout on a hidden box.
+        var last = FindUploadAttachmentFrame(page);
+        if (last is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var lastNotes = last.Locator("#txtNotes");
+            if (await lastNotes.CountAsync() == 0 || await lastNotes.First.IsVisibleAsync())
+            {
+                return last;
+            }
+        }
+        catch (PlaywrightException)
+        {
+        }
+
+        return null;
     }
 
     private static IFrame? FindUploadAttachmentFrame(IPage page)

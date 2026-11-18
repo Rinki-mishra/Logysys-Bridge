@@ -170,7 +170,8 @@ public sealed class OrganisationCodMarker
         if (!await WaitForMasterControlsAsync(page))
         {
             throw new LogisysException(
-                "Organization Master did not finish loading (Account Info / Edit controls missing). Leave Edge open and Finish again.");
+                "Organization Master did not finish loading - its tab strip script (tsMain_Handler) "
+                + "never initialised, so Account Info cannot be opened. Reload the organisation in Edge and Finish again.");
         }
 
         // Required Softlink order (Edit-first leaves the form stuck on Address/General):
@@ -178,7 +179,8 @@ public sealed class OrganisationCodMarker
         if (!await EnsureAccountInfoAsync(page))
         {
             throw new LogisysException(
-                "Account Info tab did not open (still on Address/General). Softlink tab strip was slow — leave Organization Master open and Finish again.");
+                "Account Info tab did not open (still on Address/General). "
+                + await DescribeTabStateAsync(page));
         }
 
         if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
@@ -360,7 +362,17 @@ public sealed class OrganisationCodMarker
             try
             {
                 var ready = await page.EvaluateAsync<bool>("""
-                    () => !!(document.getElementById('tsMainItem6') || document.getElementById('tsMainLink6'))
+                    () => (() => {
+                        const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
+                        return Array.from(document.querySelectorAll('[id^="tsMainItem"], [id^="tsMainLink"]'))
+                            .some(el => norm(el.textContent) === 'Account Info')
+                          || !!(document.getElementById('tsMainItem6') || document.getElementById('tsMainLink6'));
+                      })()
+                      // The tab strip's onclick is "tsMain_Handler.clickTab(n)". Softlink can finish
+                      // loading (readyState complete, every tab and button rendered) while that handler
+                      // was never constructed - then every tab click throws TypeError and is swallowed,
+                      // so the page sits on Address/General forever. Only "ready" once it exists.
+                      && typeof tsMain_Handler !== 'undefined' && !!tsMain_Handler
                       && !!(document.getElementById('TaskButtons1_dvEdit')
                         || document.getElementById('TaskButtons1_dvSaveClose')
                         || document.getElementById('TaskButtons1_dvClose'));
@@ -378,6 +390,47 @@ public sealed class OrganisationCodMarker
         }
 
         return false;
+    }
+
+    // Diagnostics for the one failure we cannot reproduce outside the live Edge session:
+    // reports what the tab strip actually looks like, whether Softlink's handler exists,
+    // and what a click does to it, so the log says why rather than guessing "slow".
+    private static async Task<string> DescribeTabStateAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<string>("""
+                () => {
+                  const norm = t => (t || '').replace(/\s+/g, ' ').trim();
+                  const li = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                      .find(n => norm(n.textContent) === 'Account Info');
+                  const bits = [];
+                  bits.push('url=' + location.pathname + location.search);
+                  bits.push('ready=' + document.readyState);
+                  bits.push('handler=' + (typeof tsMain_Handler));
+                  bits.push('frames=' + window.frames.length);
+                  if (!li) { bits.push('accountInfoTab=NOT FOUND'); return bits.join(' '); }
+                  bits.push('tabId=' + li.id);
+                  bits.push('tabClass="' + (li.className || '') + '"');
+                  bits.push('onclick="' + (li.getAttribute('onclick') || '') + '"');
+                  bits.push('visible=' + !!li.offsetParent);
+                  const active = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                      .filter(n => (n.className || '').includes('linkOn'))
+                      .map(n => n.id + ':' + norm(n.textContent));
+                  bits.push('activeTab=' + (active.join(',') || 'none'));
+                  let thrown = 'none';
+                  try { li.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window})); }
+                  catch (e) { thrown = String(e); }
+                  bits.push('clickThrew=' + thrown);
+                  bits.push('classAfterClick="' + (li.className || '') + '"');
+                  return bits.join(' ');
+                }
+                """);
+        }
+        catch (PlaywrightException ex)
+        {
+            return "Tab state could not be read: " + ex.Message.Split('\n')[0].Trim();
+        }
     }
 
     private static async Task<bool> EnsureAccountInfoAsync(IPage page)
@@ -420,15 +473,27 @@ public sealed class OrganisationCodMarker
                     if (typeof el.click === 'function') el.click();
                     return true;
                   };
+                  const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
+                  // Find the tab by its visible label FIRST. The previous order took
+                  // tsMainItem6 on faith: fire() reports success whenever the element merely
+                  // exists, so the label fallback underneath was unreachable, and a tenant that
+                  // numbers its tab strip differently kept clicking whatever tab 6 happens to be.
+                  const strip = Array.from(document.querySelectorAll('[id^="tsMainItem"], [id^="tsMainLink"]'));
+                  const labelled = strip.find(el => norm(el.textContent) === 'Account Info');
+                  if (labelled) {
+                    const la = labelled.tagName === 'A' ? labelled : labelled.querySelector('a');
+                    const ltd = la && la.querySelector('td');
+                    // Softlink binds tab switching on the LI / inner A / TD inconsistently across builds.
+                    if (fire(ltd) || fire(la) || fire(labelled)) return true;
+                  }
+                  // Overseas / Airlines masters sometimes only respond to the visible tab label.
+                  const anyLabel = Array.from(document.querySelectorAll('a, td, span, li'))
+                    .find(el => norm(el.textContent) === 'Account Info');
+                  if (fire(anyLabel)) return true;
+                  // Last resort: the historical fixed index.
                   const li = document.getElementById('tsMainItem6');
                   const a = document.getElementById('tsMainLink6') || (li && li.querySelector('a'));
-                  const td = a && a.querySelector('td');
-                  // Softlink binds tab switching on the LI / inner A / TD inconsistently across builds.
-                  if (fire(td) || fire(a) || fire(li)) return true;
-                  // Overseas / Airlines masters sometimes only respond to the visible tab label.
-                  const tabs = Array.from(document.querySelectorAll('a, td, span, li'));
-                  const label = tabs.find(el => ((el.textContent || '').trim() === 'Account Info'));
-                  return fire(label);
+                  return fire(a && a.querySelector('td')) || fire(a) || fire(li);
                 }
                 """);
             if (!clicked)
@@ -443,7 +508,10 @@ public sealed class OrganisationCodMarker
 
         try
         {
-            var tab = page.Locator("#tsMainLink6, #tsMainItem6 a").First;
+            var tab = page
+                .Locator("[id^='tsMainItem'], [id^='tsMainLink']")
+                .Filter(new LocatorFilterOptions { HasTextString = "Account Info" })
+                .First;
             if (await tab.CountAsync() > 0 && await tab.IsVisibleAsync())
             {
                 await tab.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 3_000 });
@@ -460,16 +528,19 @@ public sealed class OrganisationCodMarker
         {
             return await page.EvaluateAsync<bool>("""
                 () => {
-                  const li = document.getElementById('tsMainItem6');
-                  if (li && (li.className || '').toString().includes('linkOn')) return true;
+                  const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
+                  const strip = Array.from(document.querySelectorAll('[id^="tsMainItem"]'));
+                  const on = (el) => !!(el && (el.className || '').toString().includes('linkOn'));
+                  // Match the tab by label; tab 6 is not Account Info in every tenant.
+                  const ai = strip.find(el => norm(el.textContent) === 'Account Info')
+                    || document.getElementById('tsMainItem6');
+                  if (on(ai)) return true;
                   // Fallback: Account Info panel widgets are present and General Address branch list is not the focus.
                   const customer = document.getElementById('tabCustVendAccInfoItem1');
                   const credit = (document.body.innerText || '').includes('Credit Limit');
                   const cod = (document.body.innerText || '').includes('Cash On Delivery');
-                  const generalOn = (() => {
-                    const g = document.getElementById('tsMainItem1');
-                    return !!(g && (g.className || '').toString().includes('linkOn'));
-                  })();
+                  const generalOn = strip.some(el => norm(el.textContent) === 'General' && on(el))
+                    || on(document.getElementById('tsMainItem1'));
                   return !generalOn && !!customer && (credit || cod);
                 }
                 """);

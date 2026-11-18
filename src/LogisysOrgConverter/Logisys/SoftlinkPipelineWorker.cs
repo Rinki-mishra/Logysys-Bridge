@@ -37,6 +37,10 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
                 await using var scope = _scopes.CreateAsyncScope();
                 var softlink = scope.ServiceProvider.GetRequiredService<LogisysBrowserSession>();
                 var pipeline = scope.ServiceProvider.GetRequiredService<SoftlinkPipeline>();
+                var recorder = scope.ServiceProvider.GetRequiredService<LogisysOrgConverter.Logging.SoftlinkRecorder>();
+
+                // Film from before sign-in so the recording covers Logi-Sys login to the last step.
+                await recorder.StartAsync(runId, stoppingToken);
 
                 if (softlink.IsConfigured)
                 {
@@ -50,7 +54,17 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
                     _queue.SetRunning(runId, "Softlink signed in — running Upload → Created → Finish → India G/L.");
                 }
 
-                var summary = await pipeline.RunAsync(runId, stoppingToken);
+                SoftlinkPipelineSummary summary;
+                try
+                {
+                    summary = await pipeline.RunAsync(runId, stoppingToken);
+                }
+                finally
+                {
+                    // Stop on failure too - a recording of a failed run is the useful one.
+                    await recorder.StopAsync();
+                }
+
                 _queue.SetSucceeded(runId, summary.Message);
                 _logger.LogInformation("Softlink pipeline finished for run {RunId}: {Message}", runId, summary.Message);
                 await WriteStatusLogAsync(scope.ServiceProvider, runId, summary.Message, stoppingToken);

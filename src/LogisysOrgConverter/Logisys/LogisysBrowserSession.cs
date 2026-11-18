@@ -24,6 +24,7 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
     private readonly string _profileDir;
     private readonly string _markerPath;
     private readonly string _debugFolder;
+    private readonly LogisysOrgConverter.Logging.LogisysBrowserSessionAccessor _contextAccessor;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private IPlaywright? _playwright;
@@ -32,10 +33,12 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
     public LogisysBrowserSession(
         IOptions<LogisysOptions> options,
         IWebHostEnvironment environment,
+        LogisysOrgConverter.Logging.LogisysBrowserSessionAccessor contextAccessor,
         ILogger<LogisysBrowserSession> logger)
     {
         _options = options.Value;
         _logger = logger;
+        _contextAccessor = contextAccessor;
         _profileDir = Path.Combine(environment.ContentRootPath, "SoftlinkSession");
         _markerPath = Path.Combine(_profileDir, ".signed-in");
         _debugFolder = Path.Combine(environment.ContentRootPath, "App_Data", "softlink-debug");
@@ -197,6 +200,9 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
             context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
         }
 
+        // Hand the live context to the recorder so it can film from sign-in onwards.
+        _contextAccessor.Current = context;
+
         var page = await PickSoftlinkPageAsync(context);
         page.SetDefaultTimeout(60_000);
         await page.BringToFrontAsync();
@@ -231,9 +237,10 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
                 }
 
                 // Softlink sometimes clears the form; refill credentials every few seconds.
+                // Never move focus here - the operator is typing the Security Code.
                 if ((DateTime.UtcNow - lastFill).TotalSeconds >= 4)
                 {
-                    await TryFillLoginCredentialsAsync(page);
+                    await TryFillLoginCredentialsAsync(page, focusSecurityCode: false);
                     lastFill = DateTime.UtcNow;
                 }
 
@@ -341,7 +348,7 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
     /// <summary>
     /// Fills Softlink User Id + Password from Logisys options. Does not touch Security Code (captcha).
     /// </summary>
-    private async Task TryFillLoginCredentialsAsync(IPage page)
+    private async Task TryFillLoginCredentialsAsync(IPage page, bool focusSecurityCode = true)
     {
         var userName = UserName;
         var password = (_options.Password ?? string.Empty);
@@ -388,16 +395,21 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
                 }
             }
 
-            // Leave focus on Security Code so the operator only types the captcha.
-            var security = page.GetByPlaceholder("Security Code");
-            if (await security.CountAsync() > 0 && await security.First.IsVisibleAsync())
+            // Leave focus on Security Code so the operator only types the captcha - but ONLY on
+            // the first pass. The refill loop runs every 4s, and stealing focus on every pass
+            // interrupted the operator mid-captcha and could fire validation that refreshed it.
+            if (focusSecurityCode)
             {
-                await security.First.FocusAsync();
-            }
+                var security = page.GetByPlaceholder("Security Code");
+                if (await security.CountAsync() > 0 && await security.First.IsVisibleAsync())
+                {
+                    await security.First.FocusAsync();
+                }
 
-            _logger.LogInformation(
-                "Filled Softlink login fields for {UserName}; enter Security Code and click Log In.",
-                string.IsNullOrWhiteSpace(userName) ? "(password only)" : userName);
+                _logger.LogInformation(
+                    "Filled Softlink login fields for {UserName}; enter Security Code and click Log In.",
+                    string.IsNullOrWhiteSpace(userName) ? "(password only)" : userName);
+            }
         }
         catch (PlaywrightException ex)
         {

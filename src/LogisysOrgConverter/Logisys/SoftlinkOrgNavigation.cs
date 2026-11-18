@@ -651,13 +651,37 @@ public static class SoftlinkOrgNavigation
                     continue;
                 }
 
-                if (expectedKey is null || await MasterShowsOrganisationAsync(candidate, expectedKey))
+                if (expectedKey is null)
                 {
                     return candidate;
                 }
 
-                // Fresh Master window — name field may still be hydrating.
-                return candidate;
+                // The name field can still be hydrating on a freshly opened Master window, so give
+                // it a few tries before judging. Previously a failed match fell through to
+                // "return candidate" anyway, which made this check dead code: the first window with
+                // OrganizationMaster in its URL was reused for every organisation. Its controls all
+                // exist, so readiness passed, but tab clicks and dialogs did nothing because the
+                // window belonged to a different (often stale) organisation.
+                // The Master window renders its shell well before the Name field is populated,
+                // so give it a real budget (~7s) before deciding the window is the wrong one.
+                var matched = false;
+                for (var attempt = 0; attempt < 12 && !matched; attempt++)
+                {
+                    if (attempt > 0)
+                    {
+                        await candidate.WaitForTimeoutAsync(600);
+                    }
+
+                    matched = await MasterShowsOrganisationAsync(candidate, expectedKey);
+                }
+
+                if (matched)
+                {
+                    return candidate;
+                }
+
+                // Wrong organisation in this window - keep looking. Returning null lets the caller
+                // fall back to TryResolveOrgMasterPageAsync, which opens the right one.
             }
             catch (PlaywrightException)
             {
@@ -764,6 +788,31 @@ public static class SoftlinkOrgNavigation
 
     private static async Task<bool> MasterShowsOrganisationAsync(IPage page, string expectedKey)
     {
+        // Softlink keeps the organisation name in the Name <input>. innerText does NOT include
+        // input values, so the body-text check below almost never matched - which is why the
+        // caller used to ignore its result and take whatever window it found first.
+        try
+        {
+            var fieldText = await page.EvaluateAsync<string>("""
+                () => {
+                  const parts = [];
+                  for (const el of document.querySelectorAll('input, textarea')) {
+                    const v = (el.value || '').trim();
+                    if (v) parts.push(v);
+                  }
+                  return parts.join(' ');
+                }
+                """);
+            if (!string.IsNullOrWhiteSpace(fieldText)
+                && Key(fieldText).Contains(expectedKey, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        catch (PlaywrightException)
+        {
+        }
+
         foreach (var root in Roots(page))
         {
             try
