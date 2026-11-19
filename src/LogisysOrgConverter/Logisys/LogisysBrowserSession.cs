@@ -12,9 +12,10 @@ public sealed class LogisysException : Exception
     }
 }
 
-// One Softlink Edge window for the whole flow:
-// 1) Sign in starts a normal Edge with only remote debugging (no Playwright --no-sandbox).
-// 2) Attach connects over CDP to that same window and never closes it.
+// One Softlink Edge for the whole flow:
+// 1) Logisys:Headless starts a signed-in profile with --headless=new (no window).
+// 2) The Security Code still opens a normal visible Edge.
+// 3) Attach connects over CDP and leaves that Edge running when the run finishes.
 public sealed class LogisysBrowserSession : IAsyncDisposable
 {
     private const int DebugPort = 9333;
@@ -29,6 +30,8 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
 
     private IPlaywright? _playwright;
     private IBrowser? _browser;
+    private bool? _edgeHeadless;
+    private bool _viewportHooked;
 
     public LogisysBrowserSession(
         IOptions<LogisysOptions> options,
@@ -52,9 +55,11 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
 
     public bool HasSignedIn => File.Exists(_markerPath);
 
+    public bool PrefersHeadless => _options.Headless;
+
     public string DebugFolder => _debugFolder;
 
-    // Starts (or focuses) Softlink Edge for captcha. Does not use Playwright.
+    // Starts a visible Softlink Edge for the Security Code. Does not use Playwright.
     public string OpenSignInWindow()
     {
         if (!IsConfigured)
@@ -63,28 +68,16 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         }
 
         Directory.CreateDirectory(_profileDir);
-        if (PortOpen(DebugPort))
+        if (PortOpen(DebugPort) && !EdgeIsHeadless())
         {
             var whoOpen = string.IsNullOrWhiteSpace(UserName) ? "your Softlink User Id" : UserName;
             return $"Softlink Edge is already open. Finish Security Code + Log In + Submit for Gurugram in that window, leave it open, then click Attach documents. Signed in as {whoOpen} when credentials are configured.";
         }
 
-        // Only kill leftover Softlink Edge so we can bind the debug port cleanly.
+        // A hidden Edge holds the same profile, so it has to close before a visible window can open.
         StopSoftlinkEdge();
-        var edge = FindEdge() ?? throw new LogisysException("Microsoft Edge was not found.");
-        var args = string.Join(' ',
-            $"--remote-debugging-port={DebugPort}",
-            "--remote-allow-origins=*",
-            $"--user-data-dir=\"{_profileDir}\"",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--start-maximized",
-            $"\"{BaseUrl}/Login\"");
-        if (Process.Start(new ProcessStartInfo { FileName = edge, Arguments = args, UseShellExecute = false }) is null)
-        {
-            throw new LogisysException("Microsoft Edge could not be started.");
-        }
-
+        WaitForPortClosed();
+        StartEdge(headless: false);
         var who = string.IsNullOrWhiteSpace(UserName) ? "your Softlink User Id" : UserName;
         return $"Softlink Edge opened. Sign in as {who}, type the Security Code, click Log In, Submit for Gurugram, then leave that Edge window open and click Attach documents. Do not close Edge.";
     }
@@ -160,53 +153,88 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
     {
         if (await PortOpenAsync(DebugPort, cancellationToken))
         {
-            // Focus / reuse the existing Softlink Edge window (same as Sign-in when already open).
-            OpenSignInWindow();
+            // A signed-in window left over from a headed run would keep Logi-Sys on screen.
+            if (_options.Headless && HasSignedIn && !EdgeIsHeadless())
+            {
+                _logger.LogInformation("Closing the visible Softlink Edge so this signed-in run can continue without a window.");
+                await ReleaseBrowserAsync();
+                StopSoftlinkEdge();
+                await WaitForPortClosedAsync(cancellationToken);
+            }
+
+            if (await PortOpenAsync(DebugPort, cancellationToken))
+            {
+                _logger.LogInformation(
+                    EdgeIsHeadless()
+                        ? "Reusing the headless Softlink Edge already running."
+                        : "Reusing the Softlink Edge window already open.");
+                return;
+            }
+        }
+
+        // First sign-in has no saved session, so the Security Code needs a visible window
+        // even when headless runs are enabled.
+        var headless = _options.Headless && HasSignedIn;
+        if (headless)
+        {
+            _logger.LogInformation("Opening headless Softlink Edge. A window appears only if the Security Code is required.");
+        }
+        else if (_options.Headless)
+        {
+            _logger.LogInformation("Opening a visible Softlink Edge for the first Security Code sign-in.");
+        }
+        else
+        {
+            _logger.LogInformation("Opening Softlink Edge for Security Code + Log In.");
+        }
+
+        StartEdge(headless);
+        var startup = headless
+            ? TimeSpan.FromSeconds(30)
+            : TimeSpan.FromMinutes(Math.Max(1, _options.LoginWaitMinutes));
+        if (await WaitForPortAsync(cancellationToken, startup))
+        {
             return;
         }
 
-        _logger.LogInformation("Opening Softlink Edge for Security Code + Log In.");
-        OpenSignInWindow();
-
-        var minutes = Math.Max(1, _options.LoginWaitMinutes);
-        var deadline = DateTime.UtcNow.AddMinutes(minutes);
-        while (DateTime.UtcNow < deadline && !await PortOpenAsync(DebugPort, cancellationToken))
+        if (!headless)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await Task.Delay(1_000, cancellationToken);
+            throw EdgeDidNotOpen();
         }
 
-        if (!await PortOpenAsync(DebugPort, cancellationToken))
+        _logger.LogWarning("Headless Softlink Edge did not open. Starting a visible window instead.");
+        await ReleaseBrowserAsync();
+        StopSoftlinkEdge();
+        await WaitForPortClosedAsync(cancellationToken);
+        StartEdge(headless: false);
+        if (!await WaitForPortAsync(cancellationToken, TimeSpan.FromMinutes(Math.Max(1, _options.LoginWaitMinutes))))
         {
-            throw new LogisysException(
-                $"Softlink Edge did not open within {minutes} minute(s). When Edge opens, enter Security Code, click Log In, Submit for Gurugram, and leave that window open.");
+            throw EdgeDidNotOpen();
         }
     }
 
     private async Task<IPage> ConnectAndWaitForSignInAsync(CancellationToken cancellationToken)
     {
-        _playwright ??= await Playwright.CreateAsync();
-        _browser ??= await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
+        var page = await AttachSoftlinkPageAsync();
 
-        IBrowserContext context;
-        try
+        // A hidden Edge cannot show the captcha. Close it and open the normal window.
+        if (await IsLoginPageAsync(page) && _options.Headless && EdgeIsHeadless())
         {
-            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
-        }
-        catch (PlaywrightException)
-        {
-            _browser = null;
-            _browser = await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
-            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
+            _logger.LogInformation("Headless Softlink Edge is on Login. Opening a visible window for the Security Code.");
+            await ReleaseBrowserAsync();
+            StopSoftlinkEdge();
+            await WaitForPortClosedAsync(cancellationToken);
+            StartEdge(headless: false);
+            if (!await WaitForPortAsync(cancellationToken, TimeSpan.FromSeconds(45)))
+            {
+                throw new LogisysException(
+                    "Visible Softlink Edge did not open for the Security Code. Sign in, then run again.");
+            }
+
+            page = await AttachSoftlinkPageAsync();
         }
 
-        // Hand the live context to the recorder so it can film from sign-in onwards.
-        _contextAccessor.Current = context;
-
-        var page = await PickSoftlinkPageAsync(context);
-        page.SetDefaultTimeout(60_000);
-        await page.BringToFrontAsync();
-        _logger.LogInformation("Softlink using tab {Url}", page.Url);
+        var context = page.Context;
 
         // Softlink sometimes bounces back to Login when Attach connects. Wait in the same
         // window for you to sign in again — do not navigate away or autofill captcha.
@@ -431,6 +459,223 @@ public sealed class LogisysBrowserSession : IAsyncDisposable
         catch (PlaywrightException)
         {
         }
+    }
+
+    private async Task<IPage> AttachSoftlinkPageAsync()
+    {
+        _playwright ??= await Playwright.CreateAsync();
+        _browser ??= await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
+
+        IBrowserContext context;
+        try
+        {
+            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
+        }
+        catch (PlaywrightException)
+        {
+            _browser = null;
+            _browser = await _playwright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{DebugPort}");
+            context = _browser.Contexts.Count > 0 ? _browser.Contexts[0] : await _browser.NewContextAsync();
+        }
+
+        // Hand the live context to the recorder so it can film from sign-in onwards.
+        _contextAccessor.Current = context;
+        await WidenHeadlessPagesAsync(context);
+
+        var page = await PickSoftlinkPageAsync(context);
+        page.SetDefaultTimeout(60_000);
+        await page.BringToFrontAsync();
+        _logger.LogInformation("Softlink using tab {Url}", page.Url);
+        return page;
+    }
+
+    // Headless Edge defaults to a small viewport. Softlink's tab strip and footer
+    // were built against a desktop window, so give every page the same size.
+    private async Task WidenHeadlessPagesAsync(IBrowserContext context)
+    {
+        if (!EdgeIsHeadless())
+        {
+            return;
+        }
+
+        if (!_viewportHooked)
+        {
+            _viewportHooked = true;
+            context.Page += (_, opened) => _ = WidenAsync(opened);
+        }
+
+        foreach (var opened in context.Pages)
+        {
+            await WidenAsync(opened);
+        }
+    }
+
+    private static async Task WidenAsync(IPage page)
+    {
+        try
+        {
+            if (!page.IsClosed)
+            {
+                await page.SetViewportSizeAsync(1920, 1080);
+            }
+        }
+        catch (PlaywrightException)
+        {
+        }
+    }
+
+    private void StartEdge(bool headless)
+    {
+        Directory.CreateDirectory(_profileDir);
+        var edge = FindEdge() ?? throw new LogisysException("Microsoft Edge was not found.");
+        var windowArgs = headless
+            ? "--headless=new --window-size=1920,1080"
+            : "--start-maximized";
+        var args = string.Join(' ',
+            $"--remote-debugging-port={DebugPort}",
+            "--remote-allow-origins=*",
+            $"--user-data-dir=\"{_profileDir}\"",
+            "--no-first-run",
+            "--no-default-browser-check",
+            windowArgs,
+            $"\"{BaseUrl}/Login\"");
+        if (Process.Start(new ProcessStartInfo { FileName = edge, Arguments = args, UseShellExecute = false }) is null)
+        {
+            throw new LogisysException("Microsoft Edge could not be started.");
+        }
+
+        RememberEdgeMode(headless);
+        _logger.LogInformation(headless
+            ? "Started headless Softlink Edge on port {Port}."
+            : "Started visible Softlink Edge on port {Port}.", DebugPort);
+    }
+
+    private async Task ReleaseBrowserAsync()
+    {
+        _contextAccessor.Current = null;
+        _viewportHooked = false;
+        _edgeHeadless = null;
+        var browser = _browser;
+        _browser = null;
+        if (browser is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await browser.CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Closing the Playwright connection before restarting Edge.");
+        }
+    }
+
+    private async Task<bool> WaitForPortAsync(CancellationToken cancellationToken, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow.Add(timeout);
+        while (DateTime.UtcNow < deadline && !await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(1_000, cancellationToken);
+        }
+
+        return await PortOpenAsync(DebugPort, cancellationToken);
+    }
+
+    private async Task WaitForPortClosedAsync(CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline && await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(400, cancellationToken);
+        }
+
+        if (await PortOpenAsync(DebugPort, cancellationToken))
+        {
+            StopSoftlinkEdge();
+        }
+
+        await Task.Delay(500, cancellationToken);
+    }
+
+    private void WaitForPortClosed()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline && PortOpen(DebugPort))
+        {
+            Thread.Sleep(300);
+        }
+    }
+
+    private bool EdgeIsHeadless()
+    {
+        if (_edgeHeadless is bool cached)
+        {
+            return cached;
+        }
+
+        var headless = QueryEdgeHeadless();
+        _edgeHeadless = headless;
+        return headless;
+    }
+
+    private void RememberEdgeMode(bool headless) => _edgeHeadless = headless;
+
+    private bool QueryEdgeHeadless()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                Arguments =
+                    "-NoProfile -Command \"" +
+                    "$rows = @(Get-CimInstance Win32_Process -Filter \\\"Name='msedge.exe'\\\" | " +
+                    "Where-Object { $_.CommandLine -match 'remote-debugging-port=" + DebugPort + "' }); " +
+                    "if ($rows | Where-Object { $_.CommandLine -match 'headless' }) { 'yes' } else { 'no' }\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using var process = Process.Start(psi);
+            if (process is null)
+            {
+                return false;
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            if (!process.WaitForExit(8_000))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Timed out checking whether Softlink Edge is headless.");
+                }
+
+                return false;
+            }
+
+            return output.Contains("yes", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not tell whether Softlink Edge is headless.");
+            return false;
+        }
+    }
+
+    private LogisysException EdgeDidNotOpen()
+    {
+        var minutes = Math.Max(1, _options.LoginWaitMinutes);
+        return new LogisysException(
+            $"Softlink Edge did not open within {minutes} minute(s). When Edge opens, enter Security Code, click Log In, Submit for Gurugram, and leave that window open.");
     }
 
     private void StopSoftlinkEdge()

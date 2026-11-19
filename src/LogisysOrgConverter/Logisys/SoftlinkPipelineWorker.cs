@@ -46,9 +46,13 @@ public sealed class SoftlinkPipelineWorker : BackgroundService
                 {
                     _queue.SetRunning(
                         runId,
-                        "Opening Softlink Edge — User Id/Password are filled from config; enter Security Code, Log In, Submit for Gurugram.");
+                        softlink.PrefersHeadless
+                            ? "Opening Softlink. A signed-in session stays hidden; a window appears only for the Security Code."
+                            : "Opening Softlink Edge — User Id/Password are filled from config; enter Security Code, Log In, Submit for Gurugram.");
                     _logger.LogInformation(
-                        "Opening Softlink Edge for run {RunId}; autofilling User Id/Password, waiting for Security Code + Log In if needed.",
+                        softlink.PrefersHeadless
+                            ? "Opening Softlink for run {RunId}. Headless when already signed in; visible only if the Security Code is required."
+                            : "Opening Softlink Edge for run {RunId}; autofilling User Id/Password, waiting for Security Code + Log In if needed.",
                         runId);
                     await softlink.EnsureReadyAsync(stoppingToken);
                     _queue.SetRunning(runId, "Softlink signed in — running Upload → Created → Finish → India G/L.");

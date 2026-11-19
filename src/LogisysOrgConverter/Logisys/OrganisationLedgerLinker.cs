@@ -360,9 +360,9 @@ public sealed class OrganisationLedgerLinker
                     || document.getElementById('tsMainItem6');
                   if (!li) return false;
                   li.scrollIntoView({ block: 'center', inline: 'nearest' });
+                  // One click only. A second click on the inner <a> fires clickTab twice and the
+                  // racing postbacks land back on General - the exact fault that broke COD.
                   li.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                  const a = li.tagName === 'A' ? li : li.querySelector('a');
-                  if (a) a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
                   return true;
                 }
                 """);
