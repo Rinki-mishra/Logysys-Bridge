@@ -7,7 +7,7 @@ namespace LogisysOrgConverter.Logisys;
 public sealed record CodMarkSummary(int Organisations, int Marked, int Skipped, int Failed, string Message);
 
 // Softlink Org Master import does not apply the Excel "Cash On Delivery" column to Account Info.
-// After create: Account Info → Edit → Customer → Cash On Delivery → Save & Close, then next org.
+// After create: Edit → Account Info → Cash On Delivery → Save & Close, then next org.
 public sealed class OrganisationCodMarker
 {
     private readonly AppDbContext _db;
@@ -174,48 +174,30 @@ public sealed class OrganisationCodMarker
                 + "never initialised, so Account Info cannot be opened. Reload the organisation in Edge and Finish again.");
         }
 
-        // Required Softlink order (Edit-first leaves the form stuck on Address/General):
-        // Account Info → Edit → mark Cash On Delivery → Save & Close → next organisation.
+        // Organization Master opens on General → Address (Branches). Tab changes do not
+        // stick until Edit unlocks the form, so the order is:
+        // Edit → Account Info → Cash On Delivery → Save & Close.
+        if (!await EnsureEditingAsync(page))
+        {
+            throw new LogisysException(
+                "Could not click Edit on Organization Master. Save & Close is still disabled.");
+        }
+
         if (!await EnsureAccountInfoAsync(page))
         {
             throw new LogisysException(
-                "Account Info tab did not open (still on Address/General). "
+                "Account Info tab did not open after Edit (still on Address/General). "
                 + DescribeOpenMasters(page) + " "
                 + await DescribeTabStateAsync(page));
         }
 
+        // Cash On Delivery sits on Account Info → Customer.
         if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
         {
             throw new LogisysException("Could not open Account Info → Customer.");
         }
 
-        await page.WaitForTimeoutAsync(800);
-
-        var alreadyEditing = await IsAlreadyEditingAsync(page);
-        if (!alreadyEditing)
-        {
-            if (!await SoftlinkClickEditAsync(page) && !await ClickToolbarAsync(page, "Edit"))
-            {
-                throw new LogisysException("Could not click Edit on Organization Master (Account Info).");
-            }
-
-            await page.WaitForTimeoutAsync(1_200);
-            await WaitForMasterControlsAsync(page);
-
-            // Edit often snaps Softlink back to General — force Account Info → Customer again.
-            if (!await EnsureAccountInfoAsync(page))
-            {
-                throw new LogisysException(
-                    "Account Info tab did not stay open after Edit. Leave Organization Master open and Finish again.");
-            }
-
-            if (!await SoftlinkClickCustomerAsync(page) && !await ClickCustomerTabAsync(page))
-            {
-                throw new LogisysException("Could not open Account Info → Customer after Edit.");
-            }
-
-            await page.WaitForTimeoutAsync(600);
-        }
+        await page.WaitForTimeoutAsync(600);
 
         // Rule: any Credit Limit (> 0) or Unlimited → never tick Cash On Delivery.
         if (await HasCreditOrUnlimitedAsync(page))
@@ -521,69 +503,36 @@ public sealed class OrganisationCodMarker
         return await SoftlinkAccountInfoActiveAsync(page);
     }
 
-    // Softlink main tab: LI#tsMainItem6 / A#tsMainLink6 — DOM click only (direct clickTab() breaks in strict mode).
+    // Softlink main tab: the "Account Info" label (often LI#tsMainItem6).
+    // One click only — firing mousedown/mouseup/click on the TD, A, and LI together
+    // posts back and lands on General → Address again.
     private static async Task SoftlinkClickAccountInfoAsync(IPage page)
     {
         try
         {
             var clicked = await page.EvaluateAsync<bool>("""
                 () => {
-                  const fire = (el) => {
-                    if (!el) return false;
-                    el.scrollIntoView({ block: 'center', inline: 'nearest' });
-                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                    if (typeof el.click === 'function') el.click();
-                    return true;
-                  };
-                  const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
-                  // Find the tab by its visible label FIRST. The previous order took
-                  // tsMainItem6 on faith: fire() reports success whenever the element merely
-                  // exists, so the label fallback underneath was unreachable, and a tenant that
-                  // numbers its tab strip differently kept clicking whatever tab 6 happens to be.
-                  const strip = Array.from(document.querySelectorAll('[id^="tsMainItem"], [id^="tsMainLink"]'));
-                  const labelled = strip.find(el => norm(el.textContent) === 'Account Info');
-                  if (labelled) {
-                    const la = labelled.tagName === 'A' ? labelled : labelled.querySelector('a');
-                    const ltd = la && la.querySelector('td');
-                    // Softlink binds tab switching on the LI / inner A / TD inconsistently across builds.
-                    if (fire(ltd) || fire(la) || fire(labelled)) return true;
-                  }
-                  // Overseas / Airlines masters sometimes only respond to the visible tab label.
-                  const anyLabel = Array.from(document.querySelectorAll('a, td, span, li'))
-                    .find(el => norm(el.textContent) === 'Account Info');
-                  if (fire(anyLabel)) return true;
-                  // Last resort: the historical fixed index.
-                  const li = document.getElementById('tsMainItem6');
-                  const a = document.getElementById('tsMainLink6') || (li && li.querySelector('a'));
-                  return fire(a && a.querySelector('td')) || fire(a) || fire(li);
+                  if (typeof tsMain_Handler === 'undefined' || !tsMain_Handler) return false;
+                  const norm = (n) => (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim();
+                  const li = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                    .find(el => norm(el) === 'Account Info')
+                    || document.getElementById('tsMainItem6');
+                  if (!li) return false;
+                  li.scrollIntoView({ block: 'center', inline: 'nearest' });
+                  li.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                  return true;
                 }
                 """);
-            if (!clicked)
+            if (clicked)
             {
-                await ClickAccountInfoTabAsync(page);
+                return;
             }
         }
         catch (PlaywrightException)
         {
-            await ClickAccountInfoTabAsync(page);
         }
 
-        try
-        {
-            var tab = page
-                .Locator("[id^='tsMainItem'], [id^='tsMainLink']")
-                .Filter(new LocatorFilterOptions { HasTextString = "Account Info" })
-                .First;
-            if (await tab.CountAsync() > 0 && await tab.IsVisibleAsync())
-            {
-                await tab.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 3_000 });
-            }
-        }
-        catch (PlaywrightException)
-        {
-        }
+        await ClickAccountInfoTabAsync(page);
     }
 
     private static async Task<bool> SoftlinkAccountInfoActiveAsync(IPage page)
@@ -615,23 +564,81 @@ public sealed class OrganisationCodMarker
         }
     }
 
+    // Footer Edit (#TaskButtons1_dvEdit). View mode keeps Save & Close disabled and
+    // leaves the form on General → Address until this click's postback finishes.
+    private static async Task<bool> EnsureEditingAsync(IPage page)
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (await IsAlreadyEditingAsync(page))
+            {
+                return true;
+            }
+
+            if (!await SoftlinkClickEditAsync(page))
+            {
+                await ClickToolbarAsync(page, "Edit");
+            }
+
+            try
+            {
+                await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new() { Timeout = 15_000 });
+            }
+            catch (TimeoutException)
+            {
+            }
+            catch (PlaywrightException ex) when (LogisysBrowserSession.IsClosedError(ex))
+            {
+                return false;
+            }
+
+            await page.WaitForTimeoutAsync(800);
+            await WaitForMasterControlsAsync(page);
+            if (await IsAlreadyEditingAsync(page))
+            {
+                return true;
+            }
+        }
+
+        return await IsAlreadyEditingAsync(page);
+    }
+
     private static async Task<bool> SoftlinkClickEditAsync(IPage page)
     {
         try
         {
-            return await page.EvaluateAsync<bool>("""
+            var clicked = await page.EvaluateAsync<bool>("""
                 () => {
                   const btn = document.getElementById('TaskButtons1_dvEdit');
                   if (!btn || btn.disabled || btn.classList.contains('aspNetDisabled')) return false;
+                  btn.scrollIntoView({ block: 'center', inline: 'nearest' });
                   btn.click();
                   return true;
                 }
                 """);
+            if (clicked)
+            {
+                return true;
+            }
         }
         catch (PlaywrightException)
         {
-            return false;
         }
+
+        try
+        {
+            var edit = page.Locator("#TaskButtons1_dvEdit");
+            if (await edit.CountAsync() > 0 && await edit.IsVisibleAsync() && !await edit.IsDisabledAsync())
+            {
+                await edit.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+                return true;
+            }
+        }
+        catch (PlaywrightException)
+        {
+        }
+
+        return false;
     }
 
     private static async Task<bool> SoftlinkClickSaveCloseAsync(IPage page)
