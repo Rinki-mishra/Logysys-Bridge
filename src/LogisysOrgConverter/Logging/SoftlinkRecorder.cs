@@ -50,6 +50,7 @@ public sealed class SoftlinkRecorder
     private IBrowserContext? _tracing;
     private string _folder = string.Empty;
     private int _frame;
+    private int _failures;
 
     public SoftlinkRecorder(
         RecordingOptions options,
@@ -81,6 +82,7 @@ public sealed class SoftlinkRecorder
             _folder = Path.Combine(_root, $"{DateTime.Now:yyyyMMdd-HHmmss}-{runId.ToString()[..8]}");
             Directory.CreateDirectory(_folder);
             _frame = 0;
+            _failures = 0;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _loop = Task.Run(() => CaptureLoopAsync(_cts.Token), CancellationToken.None);
             _logger.LogInformation("Recording Softlink session to {Folder}", _folder);
@@ -148,11 +150,15 @@ public sealed class SoftlinkRecorder
                     await CaptureFrameAsync(context, token);
                 }
             }
-            catch (PlaywrightException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-            }
-            catch (ObjectDisposedException)
-            {
+                // Never let one bad screenshot end the recording - that cost us the
+                // footage of the Notes dialog failures on the 2026-11-19 run.
+                _failures++;
+                if (_failures % 20 == 1)
+                {
+                    _logger.LogDebug(ex, "Recording frame {Frame} failed; continuing.", _frame);
+                }
             }
 
             try
@@ -245,7 +251,7 @@ public sealed class SoftlinkRecorder
         }
 
         var path = Path.Combine(_folder, $"frame-{_frame:D5}.png");
-        await page.ScreenshotAsync(new PageScreenshotOptions { Path = path, Timeout = 5_000 });
+        await page.ScreenshotAsync(new PageScreenshotOptions { Path = path, Timeout = 15_000 });
         _frame++;
     }
 

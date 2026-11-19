@@ -354,6 +354,12 @@ public sealed class OrganisationNoteUploader
     // Always click Notes for the current master — do not trust a leftover Notes pane from another org.
     private static async Task OpenNotesTabAsync(IPage page)
     {
+        // Already there - nothing to do. Makes this safe to call before every note.
+        if (await NotesGridReadyAsync(page))
+        {
+            return;
+        }
+
         if (await ClickSecondToLastMasterTabAsync(page))
         {
             await page.WaitForTimeoutAsync(1_000);
@@ -473,9 +479,15 @@ public sealed class OrganisationNoteUploader
         // use a DOM click instead, then wait for the iframe to unload.
         await DismissOpenNoteDialogsAsync(page);
 
+        // Saving a note is a postback, and Softlink snaps the master back to General afterwards -
+        // the same behaviour the COD path already works around. OpenNotesTabAsync used to run once
+        // before the loop, so note 1 succeeded and every later note clicked a "New" that was no
+        // longer the Notes grid's. Re-open the tab for each note; it returns immediately when the
+        // grid is already showing.
+        await OpenNotesTabAsync(page);
+
         // After saving a note Softlink posts back and re-renders the Notes grid. Clicking New while
-        // that is in flight produced no dialog at all, which is why the second document of an
-        // organisation always failed. Wait for the previous dialog to be gone first.
+        // that is in flight produced no dialog at all. Wait for the previous dialog to be gone first.
         for (var settle = 0; settle < 20; settle++)
         {
             var stillOpen = false;
@@ -525,7 +537,9 @@ public sealed class OrganisationNoteUploader
         try
         {
             dialog = await WaitForUploadAttachmentFrameAsync(page)
-                ?? throw new LogisysException("The Add Note / Upload Attachment dialog did not open after Notes → New.");
+                ?? throw new LogisysException(
+                    "The Add Note / Upload Attachment dialog did not open after Notes → New. "
+                    + await DescribeNoteDialogStateAsync(page));
         }
         catch (PlaywrightException ex)
         {
@@ -670,6 +684,60 @@ public sealed class OrganisationNoteUploader
         }
         catch (PlaywrightException)
         {
+        }
+    }
+
+    // Why the 2nd..nth Add Note dialog never appears: report what frames exist, whether a
+    // notes box is present but hidden, and whether the New control is still on screen.
+    private static async Task<string> DescribeNoteDialogStateAsync(IPage page)
+    {
+        try
+        {
+            var frames = new List<string>();
+            foreach (var frame in page.Frames.ToList())
+            {
+                var url = frame.Url ?? string.Empty;
+                if (!url.Contains("UploadAttachment", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var notes = frame.Locator("#txtNotes");
+                    var count = await notes.CountAsync();
+                    var visible = count > 0 && await notes.First.IsVisibleAsync();
+                    var value = count > 0 ? await notes.First.InputValueAsync() : string.Empty;
+                    frames.Add($"[notes={count},visible={visible},value=\"{value}\",detached={frame.IsDetached}]");
+                }
+                catch (PlaywrightException ex)
+                {
+                    frames.Add("[unreadable: " + FirstLine(ex.Message) + "]");
+                }
+            }
+
+            var page_state = await page.EvaluateAsync<string>("""
+                () => {
+                  const norm = t => (t || '').replace(/\s+/g, ' ').trim();
+                  const bits = [];
+                  bits.push('url=' + location.pathname);
+                  bits.push('frames=' + window.frames.length);
+                  const neu = [...document.querySelectorAll('a, input, button, td, span')]
+                      .filter(e => /^new$/i.test(norm(e.value || e.textContent)));
+                  bits.push('newControls=' + neu.length);
+                  bits.push('newVisible=' + neu.filter(e => !!e.offsetParent).length);
+                  const grid = document.getElementById('NotesControl1_dgNotes');
+                  bits.push('notesGrid=' + (grid ? (grid.offsetParent ? 'visible' : 'hidden') : 'absent'));
+                  bits.push('notesRows=' + (grid ? grid.querySelectorAll('tr').length : 0));
+                  return bits.join(' ');
+                }
+                """);
+
+            return $"uploadFrames={frames.Count} {string.Join(" ", frames)} {page_state}";
+        }
+        catch (PlaywrightException ex)
+        {
+            return "state unreadable: " + FirstLine(ex.Message);
         }
     }
 

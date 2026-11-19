@@ -180,6 +180,7 @@ public sealed class OrganisationCodMarker
         {
             throw new LogisysException(
                 "Account Info tab did not open (still on Address/General). "
+                + DescribeOpenMasters(page) + " "
                 + await DescribeTabStateAsync(page));
         }
 
@@ -395,12 +396,41 @@ public sealed class OrganisationCodMarker
     // Diagnostics for the one failure we cannot reproduce outside the live Edge session:
     // reports what the tab strip actually looks like, whether Softlink's handler exists,
     // and what a click does to it, so the log says why rather than guessing "slow".
+    // If Softlink has more than one Master window open, we may be driving a hidden one
+    // while a different window is the one actually on screen.
+    private static string DescribeOpenMasters(IPage page)
+    {
+        try
+        {
+            var masters = new List<string>();
+            foreach (var candidate in SoftlinkOrgNavigation.EnumeratePages(page))
+            {
+                var url = candidate.Url ?? string.Empty;
+                if (!url.Contains("OrganizationMaster", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var id = url.Contains("Org_Id=", StringComparison.OrdinalIgnoreCase)
+                    ? url[(url.IndexOf("Org_Id=", StringComparison.OrdinalIgnoreCase) + 7)..].Split('&')[0]
+                    : "?";
+                masters.Add(ReferenceEquals(candidate, page) ? id + "(driving)" : id);
+            }
+
+            return $"openMasters={masters.Count}[{string.Join(",", masters)}]";
+        }
+        catch (PlaywrightException)
+        {
+            return "openMasters=unreadable";
+        }
+    }
+
     private static async Task<string> DescribeTabStateAsync(IPage page)
     {
         try
         {
             return await page.EvaluateAsync<string>("""
-                () => {
+                async () => {
                   const norm = t => (t || '').replace(/\s+/g, ' ').trim();
                   const li = [...document.querySelectorAll('[id^="tsMainItem"]')]
                       .find(n => norm(n.textContent) === 'Account Info');
@@ -418,11 +448,45 @@ public sealed class OrganisationCodMarker
                       .filter(n => (n.className || '').includes('linkOn'))
                       .map(n => n.id + ':' + norm(n.textContent));
                   bits.push('activeTab=' + (active.join(',') || 'none'));
+                  // What does Softlink's own handler look like, and does calling it directly work?
+                  try {
+                    const h = tsMain_Handler;
+                    bits.push('handlerKeys=' + Object.keys(h).slice(0, 12).join('|'));
+                    for (const n of ['tabCount','count','length','selectedIndex','activeTab','currentTab']) {
+                      if (h[n] !== undefined && typeof h[n] !== 'function') bits.push('h.' + n + '=' + h[n]);
+                    }
+                  } catch (e) { bits.push('handlerProbe=' + e); }
+
+                  // Is the strip we found the one on screen, or is the real one inside a frame?
+                  let inFrames = 0;
+                  for (let i = 0; i < window.frames.length; i++) {
+                    try {
+                      const d = window.frames[i].document;
+                      if (d && d.getElementById('tsMainItem6')) inFrames++;
+                    } catch (e) { /* cross-origin */ }
+                  }
+                  bits.push('tabStripAlsoInFrames=' + inFrames);
+                  const r = li.getBoundingClientRect();
+                  bits.push('rect=' + Math.round(r.width) + 'x' + Math.round(r.height) + '@' + Math.round(r.top));
+
                   let thrown = 'none';
                   try { li.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window})); }
                   catch (e) { thrown = String(e); }
-                  bits.push('clickThrew=' + thrown);
-                  bits.push('classAfterClick="' + (li.className || '') + '"');
+                  bits.push('domClickThrew=' + thrown);
+
+                  // Call the handler directly - the DOM event path may never reach it.
+                  let direct = 'none';
+                  try { tsMain_Handler.clickTab(5); }
+                  catch (e) { direct = String(e); }
+                  bits.push('directCallThrew=' + direct);
+
+                  await new Promise(r2 => setTimeout(r2, 1500));
+                  bits.push('classAfter1500ms="' + (li.className || '') + '"');
+                  const nowActive = [...document.querySelectorAll('[id^="tsMainItem"]')]
+                      .filter(n => (n.className || '').includes('linkOn'))
+                      .map(n => n.id + ':' + norm(n.textContent));
+                  bits.push('activeAfter=' + (nowActive.join(',') || 'none'));
+                  bits.push('codTextNow=' + (document.body.innerText || '').includes('Cash On Delivery'));
                   return bits.join(' ');
                 }
                 """);
