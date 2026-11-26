@@ -118,6 +118,9 @@ public sealed class ConversionRunRow
     // Template cells kept for overseas agents, whose file is only written once they are approved.
     public string? CellsJson { get; set; }
 
+    // AI proposal for a Held row (advisory - never applied without a human decision).
+    public string? ProposalJson { get; set; }
+
     // Google Drive document links from the form, for Softlink Notes attachments.
     public string? DocumentsJson { get; set; }
 

@@ -17,6 +17,7 @@ public static class SchemaUpgrade
         "IF COL_LENGTH('dbo.RunRows', 'LedgerLinkedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [LedgerLinkedAtUtc] datetime2 NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'LedgerRequestedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [LedgerRequestedAtUtc] datetime2 NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'CellsJson') IS NULL ALTER TABLE dbo.RunRows ADD [CellsJson] nvarchar(max) NULL;",
+        "IF COL_LENGTH('dbo.RunRows', 'ProposalJson') IS NULL ALTER TABLE dbo.RunRows ADD [ProposalJson] nvarchar(max) NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'ApprovalDetails') IS NULL ALTER TABLE dbo.RunRows ADD [ApprovalDetails] nvarchar(max) NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'ApprovalRequestedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [ApprovalRequestedAtUtc] datetime2 NULL;",
         "IF COL_LENGTH('dbo.RunRows', 'ApprovalDecidedAtUtc') IS NULL ALTER TABLE dbo.RunRows ADD [ApprovalDecidedAtUtc] datetime2 NULL;",

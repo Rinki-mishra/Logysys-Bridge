@@ -57,6 +57,9 @@ public sealed class ConversionStore
         var documentsByRow = rows.ToDictionary(
             row => row.RowNumber,
             row => FormDocuments.Write(FormDocuments.Collect(row.Cells)));
+        var cellsByRow = rows.ToDictionary(
+            row => row.RowNumber,
+            row => JsonSerializer.Serialize(row.Cells));
         var catalog = await LoadCatalogAsync(cancellationToken);
         var certificates = await _certificates.ReadAsync(rows, cancellationToken);
         var result = _converter.Convert(rows, catalog, certificates);
@@ -133,7 +136,11 @@ public sealed class ConversionStore
                 RequesterEmail = held.RequesterEmail,
                 RequesterName = NullIfBlank(held.RequesterName),
                 LedgerJson = LedgerJson.Write(held.Ledger),
-                DocumentsJson = documentsByRow.GetValueOrDefault(held.SourceRowNumber)
+                DocumentsJson = documentsByRow.GetValueOrDefault(held.SourceRowNumber),
+                // Held rows previously stored no raw cells, so nothing downstream could see the
+                // address lines the converter failed to parse. Keep them for review and for the
+                // AI proposal step; Ready rows are unaffected.
+                CellsJson = cellsByRow.GetValueOrDefault(held.SourceRowNumber)
             });
         }
 

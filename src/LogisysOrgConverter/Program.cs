@@ -44,6 +44,12 @@ builder.Services.AddSingleton(recordingOptions);
 builder.Services.AddSingleton<LogisysOrgConverter.Logging.LogisysBrowserSessionAccessor>();
 builder.Services.AddSingleton<LogisysOrgConverter.Logging.SoftlinkRecorder>();
 
+// Advisory AI: proposes resolutions for held rows. No key configured = disabled.
+builder.Services.Configure<LogisysOrgConverter.Ai.OpenAiOptions>(
+    builder.Configuration.GetSection(LogisysOrgConverter.Ai.OpenAiOptions.Section));
+builder.Services.AddHttpClient(LogisysOrgConverter.Ai.HeldRowResolver.HttpClientName);
+builder.Services.AddScoped<LogisysOrgConverter.Ai.HeldRowResolver>();
+
 // Headless worker host: mail poll + Softlink pipeline. No Razor UI.
 builder.Services.AddDataProtection();
 builder.Services.AddDbContext<AppDbContext>(options =>

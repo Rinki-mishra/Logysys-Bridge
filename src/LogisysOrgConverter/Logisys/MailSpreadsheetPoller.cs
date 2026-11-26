@@ -139,6 +139,30 @@ public sealed class MailSpreadsheetPoller : BackgroundService
                 "Converting response rows on or after {Since} (local), not the full sheet history.",
                 since);
             runId = await store.ConvertAsync(notice.FileName, stream, stoppingToken, onlyRequestedOnOrAfter: since);
+
+            // Advisory AI pass over the rows the converter held. Proposals are stored and shown in
+            // run-status.log; nothing is applied, so the India/Overseas files are unchanged and the
+            // pipeline behaves exactly as before. A missing API key makes this a no-op.
+            try
+            {
+                var resolver = scope.ServiceProvider.GetRequiredService<LogisysOrgConverter.Ai.HeldRowResolver>();
+                var proposed = await resolver.ProposeForRunAsync(runId, stoppingToken);
+                if (proposed > 0)
+                {
+                    _logger.LogInformation(
+                        "AI proposed resolutions for {Count} held row(s) in run {RunId}; awaiting review.",
+                        proposed,
+                        runId);
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Held-row proposals could not be generated; run continues unchanged.");
+            }
             try
             {
                 await outputs.WriteAfterConvertAsync(runId, stoppingToken);

@@ -223,6 +223,12 @@ public sealed class RunOutputWriter
             foreach (var row in held)
             {
                 sb.AppendLine($"- Row {row.SourceRowNumber}: {row.OrganisationName} | {row.Reason}");
+                var proposal = LogisysOrgConverter.Ai.HeldRowProposal.Read(row.ProposalJson);
+                if (proposal is not null)
+                {
+                    // Advisory only - this has NOT been applied to the India/Overseas files.
+                    sb.AppendLine($"    AI proposal [{proposal.Decision}]: {proposal.Summary()}");
+                }
             }
         }
 
